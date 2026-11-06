@@ -288,21 +288,21 @@ class EvidenceGates(unittest.TestCase):
                 self.blocked("trader-exit-Plan")
                 self.ctx["exit"][field] = original
 
-    def test_cfd_leverage_and_currency_are_not_stock_risk(self):
-        for field, value in (("instrument_type", "cfd"), ("leverage", 5), ("currency", "EUR")):
+    def test_cfd_without_terms_leverage_without_margin_and_foreign_currency_block(self):
+        for field, value, reason in (("instrument_type", "cfd", "nicht unterstuetzt"), ("leverage", 5, "allow_margin"), ("currency", "EUR", "nicht unterstuetzt")):
             with self.subTest(field=field):
                 saved = self.row[field]
                 self.row[field] = value
-                self.blocked("nicht unterstuetzt")
+                self.blocked(reason)
                 self.row[field] = saved
 
-    def test_short_bias_remains_no_trade_with_long_only_entry_exit(self):
+    def test_short_bias_requires_short_entry_exit_and_scanner_evidence(self):
         self.ctx["market"]["period_change_pct"] = -2
         for bar, close in zip(self.ctx["market"]["bars"], [366, 365, 364]):
             bar["close"] = close
         result = self.result()
         self.assertEqual(result["bias"], "SHORT")
-        self.blocked("nur Long")
+        self.blocked("Short-Trigger")
 
     def test_real_risk_limits_cannot_be_replaced_with_claimed_pass(self):
         self.ctx["risk"] = {"verdict": "PASS"}

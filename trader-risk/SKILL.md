@@ -160,6 +160,42 @@ It never places an order, never edits an order to make it pass, never
 loosens a limit, never blocks a sell that only gets the user out, and never
 treats a PASS as the user's yes.
 
+## Extended paper analysis
+
+Proposals marked `analysis_only: true, paper: true` use the shared
+`exposure.py` valuation. They contain an exact `symbol`, `side`, `qty`,
+`instrument_type` and the complete exit `plan`. Short/CFD analysis requires
+explicit `allow_short` / `allow_cfd` and `allow_margin` as applicable, while
+`paper` remains true. No options or futures are added. The CFD contract
+schema is in [trader-sentiment](../trader-sentiment/SKILL.md#cfd-contract).
+
+Both directions enforce stop/target ordering, net reward:risk, loss at the
+stop including costs, daily losses, trade/order counts, duplicates, entry
+window, blocked instruments, gross notional caps and cash/margin reserves.
+The adverse reference is the higher fresh mid price for long, lower for
+short, or an explicit limit. Unknown/future/stale prices are refused on this
+path. Required CFD terms and account data cannot be inferred from equities.
+With existing positions, supply portfolio `equity`, `margin_used` and each
+position's `notional_usd`; `cash` is the balance before reserved margin.
+Partial account or daily loss records block approval. Batch collateral and
+loss are reserved sequentially; short proceeds are never credited.
+
+`max_loss` is the compatibility name for `loss_at_stop_usd`, including the
+spread and cost allowances. It is not an unconditional loss cap. A separate
+`maximum_possible_loss_usd` is null for shorts and unguaranteed CFDs, and
+finite for verified guaranteed-stop contracts or the full stock-long
+notional plus modelled costs. `require_bounded_loss: true` optionally refuses
+entries without a verified bound within the per-trade loss limit. The max-loss/daily limits otherwise refer
+to loss at the stop. Financing/overnight costs can exceed the allowance;
+there is no guarantee for future fee changes or missing liquidity.
+
+Extended checks currently cover opening paper candidates; there is no CFD
+portfolio netting, maintenance-margin/liquidation simulator, fill engine or
+execution support. Only USD stock CFDs on the regular NYSE calendar are
+supported. Every verdict carries an `analysis:` fingerprint incompatible
+with trader-broker. The CLI prints it but saves no approval, even without
+`--no-write`. A paper PASS never authorizes a real order.
+
 ## Safety
 
 - Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.

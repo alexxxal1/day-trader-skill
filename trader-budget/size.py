@@ -7,6 +7,9 @@ bracket order (entry, stop-loss, take-profit) to trader/orders.json in the
 shape of Alpaca's place_stock_order. It never places anything: trader-risk
 checks the order and trader-broker asks you yes or no.
 
+Extended short/CFD/spread plans use shared exposure valuation and produce
+stdout-only paper proposals. They never produce broker order files.
+
     python3 size.py                                  # trader/plan.json + trader/config.json
     python3 size.py --write                          # write trader/orders.json
     python3 size.py --limit                          # a limit order at the plan's entry
@@ -53,6 +56,7 @@ Money that cannot be invested is reported as "left idle", never hidden.
 
 import argparse
 import datetime
+import importlib.util
 import json
 import math
 import os
@@ -302,6 +306,14 @@ def money(x):
 
 # ---------------------------------------------------------------- plan mode (the default)
 
+def paper_exposure():
+    path = os.path.join(os.path.dirname(__file__), "..", "trader-risk", "exposure.py")
+    spec = importlib.util.spec_from_file_location("budget_exposure", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=None):
     """Pure function: one plan + your rules -> the sizing (a dict). qty may be 0.
 
@@ -313,6 +325,12 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
     c.update(cfg or {})
     if not isinstance(plan, dict):
         raise SizeError("the plan is not a JSON object")
+    exposure = paper_exposure()
+    if exposure.extended(plan):
+        try:
+            return exposure.size_plan(plan, c, budget, limit, price, cash, today)
+        except exposure.ExposureError as exc:
+            raise SizeError(str(exc))
     sym = str(plan.get("symbol") or "").strip().upper()
     if not sym:
         raise SizeError("the plan has no symbol (run trader-exit)")
@@ -419,6 +437,8 @@ def bracket_order(s):
     """The one proposed order, Alpaca place_stock_order fields (strings) plus why and plan."""
     if s["refusal"] or s["qty"] <= 0:
         return None
+    if s.get("analysis_only"):
+        return paper_exposure().proposal(s)
     o = {"symbol": s["symbol"], "side": "buy", "qty": str(int(s["qty"])), "type": s["order_type"],
          "time_in_force": "day"}
     if s["order_type"] == "limit":
@@ -442,6 +462,11 @@ def bracket_order(s):
 
 
 def plan_report(s, order, notes=()):
+    if s.get("analysis_only"):
+        return "\n".join(["Paper analysis: %s %s, qty %s" % (s["symbol"], s["side"], s["qty"]),
+                          "Loss at stop including spread/costs: %s USD; margin: %s USD" % (s.get("loss_at_stop_usd"), s.get("margin_required_usd")),
+                          "Maximum possible loss: %s" % (s.get("maximum_possible_loss_usd") if s.get("maximum_possible_loss_usd") is not None else "no verified finite cap"),
+                          s.get("loss_bound_note", ""), s.get("refusal") or "No execution payload. Check with trader-risk; no broker handoff."] + s.get("cost_notes", []))
     lines = []
     setup = SETUP_WORDS.get(s["setup"], s["setup"] or "setup")
     lines.append("%s buy, %s, entry %s%s" % (s["symbol"], setup, _price(s["entry_plan"]),
@@ -804,9 +829,16 @@ def run_plan(a, cfg):
     if a.portfolio and os.path.exists(a.portfolio):
         pf = read_json(a.portfolio, "portfolio")
         cash = _f(pf.get("cash")) if isinstance(pf, dict) else None
+        if cash is not None and isinstance(pf, dict) and paper_exposure().extended(plan):
+            margin = _f(pf.get("margin_used", 0))
+            if margin is None or not math.isfinite(margin) or margin < 0:
+                raise SizeError("portfolio margin_used must be a finite nonnegative number")
+            cash = max(0, cash - margin)
     s = size_trade(plan, cfg, a.budget, limit, price, cash, today)
     order = bracket_order(s)
     if order and a.write:
+        if order.get("analysis_only"):
+            raise SizeError("analysis-only short/CFD proposals are stdout only; use --json, never trader/orders.json")
         src = "trader/plan.json (%s %s %s)" % (s["symbol"], s["setup"] or "plan", s["date"] or today)
         write_orders(a.write, [order], cfg, src, now)
     if a.json:

@@ -530,10 +530,12 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("holds TSLA, not NVDA", err)
 
-    def test_longs_only_and_flag_errors(self):
-        code, _, err = run(["check", "TSLA", "--offline", TSLA, "--side", "short"])
-        self.assertEqual(code, 1)
-        self.assertIn("v2 plans longs only", err)
+    def test_short_direction_and_flag_errors(self):
+        code, text, err = run(["check", "TSLA", "--offline", TSLA, "--side", "short", "--setup", "level",
+                               "--level", "390", "--now", "2026-10-19 10:15", "--json"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(text)["side"], "sell")
+        self.assertTrue(json.loads(text)["analysis_only"])
         code, _, err = run(["check", "TSLA", "--offline", TSLA, "--level", "300"])
         self.assertIn("--level is for --setup level", err)
         code, _, err = run(["check", "TSLA", "--offline", TSLA, "--setup", "level"])
@@ -595,7 +597,7 @@ class SkillDoc(unittest.TestCase):
         self.assertGreater(len(text.splitlines()), 60)
         self.assertEqual(text[text.index("## Safety"):], risk[risk.index("## Safety"):])
         low = " ".join(text.lower().split())
-        for must in ("bar by bar", "can lag", "day trading loses most people money", "/trader-exit", "longs only", "in the background", "/loop", "nothing was placed", "10:15 am", "$364.18", "bar 8"):
+        for must in ("bar by bar", "can lag", "day trading loses most people money", "/trader-exit", "--side sell", "in the background", "/loop", "nothing was placed", "10:15 am", "$364.18", "bar 8"):
             self.assertIn(must, low)
         for never in ("\u2014", "tick " + "by tick", "real " + "time", "pro" + "fit"):
             self.assertNotIn(never, low)

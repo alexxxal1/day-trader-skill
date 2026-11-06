@@ -23,6 +23,7 @@ MAX_SPREAD_PCT = 0.5
 MAX_SPREAD_RISK = 0.20
 FIELDS = ("buy_pct", "sell_pct", "daily_change_pct", "buy_price", "sell_price", "spread", "leverage")
 LONG_SETUPS = {"breakout_20d", "bull_flag", "reclaim_ma20", "oversold_bounce", "orb"}
+SHORT_SETUPS = {"orb_short"}
 
 
 class SentimentError(ValueError):
@@ -163,7 +164,7 @@ def evaluate(row, screenshot, now):
     reasons = list(extracted["errors"])
     result = {"instrument": extracted.get("instrument") or "unbekannt", "decision": "KEIN TRADE",
               "quality": "nicht ausreichend bestaetigt", "trigger": None, "stop": None, "target": None,
-              "bias": None, "extracted": extracted, "reasons": reasons, "risk": None}
+              "bias": None, "extracted": extracted, "reasons": reasons, "risk": None, "sizing": None}
     if extracted["missing_fields"]:
         reasons.append("Screenshot-Felder fehlen: " + ", ".join(extracted["missing_fields"]))
     if not extracted["instrument"] or not extracted["symbol"] or not extracted["sentiment_period"]:
@@ -204,12 +205,14 @@ def evaluate(row, screenshot, now):
     result["sentiment_interpretation"] = why
     if not bias:
         reasons.append(why)
-    # CFD prices, contract sizes, margin and shorts have no end-to-end support
-    # in the existing equity entry/exit/risk pipeline. Never relabel them.
-    if extracted["instrument_type"] != "stock" or market.get("instrument_type") != "stock" or extracted["currency"] != "USD" or extracted["leverage"] != 1:
-        reasons.append("Instrument nicht unterstuetzt: bestehende Pipeline prueft nur ungehebelte USD-Aktien, keine CFDs")
-    if bias == "SHORT":
-        reasons.append("Short-Richtung nur Analyse: trader-entry und trader-exit unterstuetzen derzeit nur Long")
+    kind = extracted["instrument_type"]
+    side = "sell" if bias == "SHORT" else "buy"
+    if kind not in ("stock", "cfd") or market.get("instrument_type") != kind or extracted["currency"] != "USD":
+        reasons.append("Instrument nicht unterstuetzt oder abweichend: nur USD-Aktien und verifizierte Aktien-CFDs")
+    if kind == "cfd":
+        contract = row.get("contract")
+        if not contract or market.get("contract") != contract or market.get("price_basis") != "mid":
+            reasons.append("CFD-Vertragsdaten oder identische Mid-Preisbasis fehlen")
     scan = skill("trader-scanner", "scan")
     local = scan.to_eastern(now.replace(tzinfo=None))
     session = scan.session(local.date())
@@ -218,11 +221,15 @@ def evaluate(row, screenshot, now):
     if not session or not session[0] <= local.time() < session[1]:
         reasons.append("Ausserhalb der regulaeren US-Aktienhandelszeit")
     scanner = context.get("scanner") or {}
+    if kind == "cfd" and (scanner.get("instrument_type") != "cfd" or scanner.get("contract") != row.get("contract") or scanner.get("price_basis") != "mid"):
+        reasons.append("CFD-Vertragsidentitaet oder Mid-Preisbasis fehlt im Scanner")
     fresh(scanner.get("created_at"), now, 15, "trader-scanner", reasons)
     hits = [h for h in scanner.get("hits", []) if h.get("symbol") == symbol]
     tags = {tag for hit in hits for tag in hit.get("setups", [])}
-    if scanner.get("created_by") != "trader-scanner" or not tags.intersection(LONG_SETUPS):
+    if scanner.get("created_by") != "trader-scanner" or not tags.intersection(SHORT_SETUPS if bias == "SHORT" else LONG_SETUPS):
         reasons.append("Kein bestaetigtes Kursstruktur-Setup von trader-scanner (oversold allein reicht nicht)")
+    if bias == "SHORT" and scanner.get("side") != "sell":
+        reasons.append("trader-scanner bestaetigt keine Short-Kursstruktur")
     expected = local.date()
     if session is None or local.time() < session[1]:
         expected -= dt.timedelta(days=1)
@@ -250,9 +257,9 @@ def evaluate(row, screenshot, now):
     trigger = entry.get("trigger") or {}
     level = number(entry.get("level"), "en-US")
     if level is not None:
-        result["trigger"] = "Abgeschlossener %s-Kursbalken ueber %.4f" % (entry.get("interval", "?"), level)
-    if entry.get("symbol") != symbol or entry.get("side") != "buy" or entry.get("status") != "triggered" or entry.get("phase") != "open" or entry.get("date") != local.date().isoformat():
-        reasons.append("trader-entry bestaetigt keinen aktuellen Long-Trigger waehrend der Sitzung")
+        result["trigger"] = "Abgeschlossener %s-Kursbalken %s %.4f" % (entry.get("interval", "?"), "unter" if side == "sell" else "ueber", level)
+    if entry.get("symbol") != symbol or entry.get("side") != side or entry.get("status") != "triggered" or entry.get("phase") != "open" or entry.get("date") != local.date().isoformat():
+        reasons.append("trader-entry bestaetigt keinen aktuellen %s-Trigger waehrend der Sitzung" % ("Short" if side == "sell" else "Long"))
     interval = {"1m": 1, "5m": 5}.get(entry.get("interval"))
     age = number(entry.get("minutes_since"), "en-US")
     if not interval or age is None or age < 0 or age > interval:
@@ -283,12 +290,18 @@ def evaluate(row, screenshot, now):
     stop = number(exit_plan.get("stop"), "en-US")
     target = number(exit_plan.get("target"), "en-US")
     entry_price = number(trigger.get("price"), "en-US")
-    if exit_plan.get("created_by") != "trader-exit" or exit_plan.get("symbol") != symbol or exit_plan.get("side") != "buy" or exit_plan.get("date") != local.date().isoformat() or plan_entry != entry_price or plan_entry is None or stop is None or target is None or not 0 < stop < plan_entry < target:
+    valid_prices = (all(value is not None and value > 0 for value in (plan_entry, stop, target)) and
+                    (target < plan_entry < stop if side == "sell" else stop < plan_entry < target))
+    if exit_plan.get("created_by") != "trader-exit" or exit_plan.get("symbol") != symbol or exit_plan.get("side") != side or exit_plan.get("date") != local.date().isoformat() or plan_entry != entry_price or not valid_prices:
         reasons.append("Kein passender trader-exit-Plan mit gueltigem Stop und Ziel")
+    if level is None or entry_price is None or not (entry_price < level if side == "sell" else entry_price > level):
+        reasons.append("Entry-Kurs bestaetigt den richtungsabhaengigen Trigger nicht")
+    if kind == "cfd" and any(evidence.get("instrument_type") != "cfd" or evidence.get("contract") != row.get("contract") or evidence.get("price_basis") != "mid" for evidence in (entry, exit_plan)):
+        reasons.append("CFD-Vertrag/Preisbasis wurde nicht durch Entry und Exit beibehalten")
     spread = extracted["spread_derived"]
     if spread is None or spread < 0 or extracted["spread_pct"] > MAX_SPREAD_PCT:
         reasons.append("Spread fehlt, ist ungueltig oder groesser als 0,5 Prozent")
-    if spread is not None and plan_entry is not None and stop is not None and spread > (plan_entry - stop) * MAX_SPREAD_RISK:
+    if spread is not None and plan_entry is not None and stop is not None and spread > abs(plan_entry - stop) * MAX_SPREAD_RISK:
         reasons.append("Spread verbraucht mehr als 20 Prozent des geplanten Stop-Abstands")
     risk_input = context.get("risk_inputs") or {}
     fresh(risk_input.get("as_of"), now, 15, "Risikodaten", reasons)
@@ -298,30 +311,49 @@ def evaluate(row, screenshot, now):
     if not isinstance(risk_input.get("portfolio"), dict) or not isinstance(risk_input.get("state"), dict) or "orders" not in risk_input.get("state", {}):
         reasons.append("Expliziter Paper-Kontostand oder Tagesrisikostand fehlt")
     qty = number(risk_input.get("qty"), "en-US")
-    if qty is None or qty <= 0 or qty != int(qty):
-        reasons.append("Gepruefte ganze Aktien-Stueckzahl fehlt")
-    if not reasons and bias == "LONG":
+    if qty is None or qty <= 0 or (kind == "stock" and qty != int(qty)):
+        reasons.append("Gepruefte Stueckzahl fehlt oder ist fuer das Instrument ungueltig")
+    if not reasons and bias in ("LONG", "SHORT"):
         risk = skill("trader-risk", "check")
+        budget = skill("trader-budget", "size")
+        model = dict(exit_plan, instrument_type=kind, currency=extracted["currency"],
+                     leverage=extracted["leverage"], spread=spread, price_basis="mid", analysis_only=True, paper=True)
+        if kind == "cfd":
+            model["contract"] = row["contract"]
+        midpoint = float((Decimal(str(extracted["buy_price"])) + Decimal(str(extracted["sell_price"]))) / 2)
+        try:
+            portfolio = risk_input["portfolio"]
+            available = portfolio.get("cash")
+            if available is not None:
+                available -= portfolio.get("margin_used", 0)
+            sizing = budget.size_trade(model, cfg, price=midpoint, cash=available, today=local.date().isoformat())
+            result["sizing"] = sizing
+            if sizing["refusal"] or qty > sizing["qty"]:
+                reasons.append("trader-budget: " + (sizing["refusal"] or "Stueckzahl ueberschreitet risiko-/marginbasierte Positionsgroesse"))
+        except budget.SizeError as exc:
+            reasons.append("trader-budget: " + str(exc))
+            return result
         # An ephemeral proposal for the pure checker. No order file, ticket,
         # persisted verdict or connector is created or called.
-        proposal = {"symbol": symbol, "side": "buy", "qty": str(int(qty)), "type": "market", "time_in_force": "day",
-                    "order_class": "bracket", "stop_loss_stop_price": str(stop), "take_profit_limit_price": str(target),
-                    "plan": {"entry": plan_entry, "stop": stop, "target": target}}
+        proposal = {"analysis_only": True, "paper": True, "instrument_type": kind, "symbol": symbol,
+                    "side": side, "qty": str(qty), "type": "market", "plan": model}
         try:
             checked = risk.check([proposal], cfg, risk_input["portfolio"],
-                                 {symbol: extracted["buy_price"]}, risk_input["state"],
+                                 {symbol: midpoint}, risk_input["state"],
                                  now=now.replace(tzinfo=None), price_times={symbol: timestamp(market["as_of"]).replace(tzinfo=None)})
         except risk.RiskError as exc:
             reasons.append("trader-risk: " + str(exc))
             return result
         result["risk"] = checked
         verdict = checked["results"][0]
+        if verdict.get("loss_at_stop_usd") is not None:
+            result["risk_summary"] = {key: verdict.get(key) for key in ("loss_at_stop_usd", "maximum_possible_loss_usd", "margin_required_usd", "cash_required_usd", "costs_usd", "loss_bound_note", "cost_notes")}
         if verdict["verdict"] != "PASS" or verdict["kind"] != "entry" or checked["warnings"] or verdict["warnings"]:
             reasons.extend(verdict["reasons"] + verdict["warnings"] + checked["warnings"])
             reasons.append("trader-risk hat den exakten Paper-Plan nicht ohne offene Hinweise bestaetigt")
-        else:
-            result.update(decision="LONG", quality="mittel (kontraer bestaetigt)" if "kontraer" in why else "hoch (Regeln erfuellt)", stop=stop, target=target)
-    if result["decision"] == "LONG":
+        elif not reasons:
+            result.update(decision=bias, quality="mittel (kontraer bestaetigt)" if "kontraer" in why else "hoch (Regeln erfuellt)", stop=stop, target=target)
+    if result["decision"] in ("LONG", "SHORT"):
         reasons.append(why + "; Kursstruktur, Nachrichten, Entry, Exit und trader-risk bestaetigt")
     elif bias:
         reasons.insert(0, why + "; nur Sentiment-Bias " + bias + ", keine Trade-Bestaetigung")
@@ -361,6 +393,13 @@ def render(report):
     for row in report["candidates"]:
         lines.append(" | ".join(cell(v) for v in (row["instrument"], row["decision"], row["quality"], row["trigger"],
                                                   row["stop"], row["target"], "; ".join(row["reasons"]))))
+    for row in report["candidates"]:
+        summary = row.get("risk_summary")
+        if summary:
+            lines.append("\n%s: Verlust am Stop inkl. Kosten %s USD; Margin %s USD; maximal moeglicher Verlust: %s." % (
+                cell(row["instrument"]), summary["loss_at_stop_usd"], summary["margin_required_usd"],
+                summary["maximum_possible_loss_usd"] if summary["maximum_possible_loss_usd"] is not None else "keine verifizierte endliche Obergrenze"))
+            lines.extend([summary["loss_bound_note"]] + summary["cost_notes"])
     return "\n".join(lines) + "\n\n" + report["note"] + "\n"
 
 

@@ -84,10 +84,10 @@ plan's entry, or the price in `trader/prices.json` if it is fresh (under 15
 minutes old) and higher. A price that ran up since the plan means a bigger
 loss at the same stop, so fewer shares. A lower price never shrinks the risk.
 
-It refuses, and writes no order, when: the size is zero shares, the order is
+For the default long path it refuses, and writes no order, when: the size is zero shares, the order is
 under the minimum, reward:risk is under `min_reward_risk`, the stop is not
 below the entry, the target is not above it (the move already happened), the
-plan is for another day, the ticker is blocked, or the plan is a short. Say
+plan is for another day, or the ticker is blocked. Say
 the reason to the user in one line.
 
 ## Step 3: show the user
@@ -151,8 +151,43 @@ a separate config (`--config`) for a long-term split.
 ## What it never does
 
 It never places, approves or schedules an order, never raises a limit on its
-own, never shrinks a stop to fit more shares, and never sizes options,
-margin or short positions.
+own, never shrinks a stop to fit more shares, and never sizes options or futures.
+
+## Extended paper sizing
+
+Short, CFD, explicit spread and leveraged plans use the shared
+`trader-risk/exposure.py` calculation. `paper` defaults to true. Short needs
+explicit `allow_short: true` and `allow_margin: true`; CFD additionally needs
+`allow_cfd: true`. These flags are not enabled or written automatically.
+Live mode is refused on this path. The existing unleveraged long order
+format and weights mode are preserved.
+
+`qty` is rounded down to whole shares or the verified CFD `qty_step` and
+must meet `min_qty`. Loss sizing divides the max loss by loss per contract:
+`abs(entry - stop) * contract_size + spread/slippage + commissions + financing
+reserve + guaranteed-stop fee`. Stock contract size is one. Costs are in
+USD; spread/slippage are quote-price units times contract size. Reward:risk
+uses reward after the same round-trip costs. A fresh higher long price or
+lower short price increases risk; the opposite never shrinks the risk.
+
+Notional position/order caps apply before leverage. CFD collateral is
+`max(entry, stop) * contract_size * margin_rate`. Cash reserves cover that
+collateral plus the planned loss, after the cash buffer. Stock shorts use
+`short_margin_rate` (conservative default 1.5); short proceeds never fund a
+new position. Stock shorts use that collateral rate rather than a synthetic
+leverage ratio. An optional stock-long `leverage` reduces its initial margin,
+but does not divide stop risk. Higher leverage is not rated as better.
+
+`loss_at_stop_usd` includes modelled costs. `maximum_possible_loss_usd` is a
+separate bound: null for stock shorts and unguaranteed CFDs. A normal stop
+is not a guarantee. Financing/overnight and borrow costs remain possible
+additional costs beyond their supplied allowances.
+
+Extended results and paper proposals are stdout only (`--json`); `--write`
+is refused. They are not broker arguments and must never enter
+`trader/orders.json`. Risk checks them in memory, without a saved approval.
+For an existing account use current free cash; trader-risk additionally
+requires account equity, reserved margin and gross position notionals.
 
 ## Safety
 

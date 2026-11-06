@@ -191,6 +191,21 @@ oversold bounce).
 It never places, sizes or checks an order, never says which stock to buy,
 never calls data real time, and never promises that a setup works.
 
+## Paper short structure
+
+`orb --side sell --no-write --json` mirrors both stages: closes at/below
+the lowest range close are candidates, then the first completed close
+strictly below the real opening-range low confirms `orb_short`. Output
+preserves `side: sell`, `analysis_only: true`, and `paper: true`. Daily
+setups remain long; a bullish daily tag does not confirm a short.
+
+For stock CFDs, pass `orb --instrument FILE --offline CHART --no-write --json`
+and scan only verified OHLC bars of the exact contract identifier. Contract
+metadata and exact quote precision are preserved in the scanner output.
+Never substitute the underlying stock's prices. Contract terms,
+instrument mapping and price basis are checked by sentiment, entry, exit
+and risk. No live CFD data adapter or broker connection is provided.
+
 ## Safety
 
 - Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.

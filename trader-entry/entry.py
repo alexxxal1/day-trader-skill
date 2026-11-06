@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Entry Timer for trader-entry: watches a setup bar by bar and says the
-moment to get in. Standard library only. Long side only. It never places an order.
+moment to get in. Standard library only. Long and paper short; verified offline
+stock-CFD bars retain their contract identity. It never places an order.
 
     python3 entry.py check TSLA                          # opening-range breakout, 5-minute bars
     python3 entry.py check TSLA --now "2026-10-19 10:15" --offline TSLA.json
@@ -9,7 +10,7 @@ moment to get in. Standard library only. Long side only. It never places an orde
     python3 entry.py watch TSLA --every 30 --until 15:30  # one line per closed bar
     python3 entry.py watchlist                            # every hit in trader/watchlist.json
 
-Setups (v2 plans longs only):
+Setups (buy by default; --side sell mirrors below the range low / level):
   orb    opening-range breakout. The range is the high and low of the first
          --or-minutes (default 15: the 9:30, 9:35 and 9:40 five-minute bars).
          It triggers on the first COMPLETED bar after the range that CLOSES
@@ -53,6 +54,7 @@ trigger, 1 otherwise. watchlist 0 when at least one symbol triggered.
 import argparse
 import datetime
 import gzip
+import importlib.util
 import json
 import os
 import re
@@ -406,9 +408,15 @@ def early_cutoff(day, t, close_dt):
 
 
 def evaluate(chart, now_utc, setup="orb", or_minutes=15, interval="5m", level=None,
-             min_volume_x=None, cfg=None):
+             min_volume_x=None, cfg=None, side="buy", instrument=None):
     """Pure function: the setup's status at now_utc from one session's bars."""
     cfg = cfg or dict(DEFAULTS)
+    side = {"long": "buy", "short": "sell", "buy": "buy", "sell": "sell"}.get(side)
+    if side is None:
+        raise EntryError("side must be buy/long or sell/short")
+    below = side == "sell"
+    relation, range_name = ("below", "the range low") if below else ("above", "the range high")
+    quote = (lambda value: float(value) if value is not None else None) if (instrument or {}).get("instrument_type") == "cfd" else r2
     if interval not in INTERVALS:
         raise EntryError("--interval is 5m or 1m")
     step = INTERVALS[interval]
@@ -421,11 +429,25 @@ def evaluate(chart, now_utc, setup="orb", or_minutes=15, interval="5m", level=No
     n_or = or_minutes * 60 // step
     local = to_eastern(now_utc)
     day = local.date()
-    res = {"symbol": chart["symbol"], "setup": setup, "side": "buy", "date": day.isoformat(),
+    res = {"symbol": chart["symbol"], "setup": setup, "side": side, "date": day.isoformat(),
            "interval": interval, "or_minutes": or_minutes, "now": local.strftime("%Y-%m-%d %H:%M:%S"), "status": "waiting",
            "phase": "", "reason": "", "opening_range": None, "level": None, "trigger": None,
            "last": None, "forming": None, "min_volume_x": min_volume_x,
            "prev_close": chart.get("prev_close"), "calendar_known": day.year in CALENDAR_YEARS, "_bars": []}
+    if instrument is not None:
+        path = os.path.join(os.path.dirname(__file__), "..", "trader-risk", "exposure.py")
+        spec = importlib.util.spec_from_file_location("entry_exposure", path)
+        exposure = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(exposure)
+        try:
+            exposure.terms(dict(instrument, side=side))
+        except exposure.ExposureError as exc:
+            raise EntryError(str(exc))
+        if instrument.get("symbol") != chart["symbol"]:
+            raise EntryError("instrument and chart symbols must match exactly; never relabel CFD prices")
+        res.update({k: instrument[k] for k in ("instrument_type", "currency", "contract", "leverage", "spread", "price_basis") if k in instrument})
+    if below or (instrument or {}).get("instrument_type") == "cfd":
+        res.update(analysis_only=True, paper=True)
     dt = chart.get("data_time")
     res["data_time"] = to_eastern(utc_of(dt)).strftime("%Y-%m-%d %H:%M:%S") if dt else None
     ok, why = trading_day(day)
@@ -482,7 +504,7 @@ def evaluate(chart, now_utc, setup="orb", or_minutes=15, interval="5m", level=No
     or_bars = [b for b in bars if b["slot"] < n_or]
     avg_vol = (sum(b["v"] for b in or_bars) / float(len(or_bars))) if or_bars else None
     if or_bars:
-        res["opening_range"] = {"high": r2(max(b["h"] for b in or_bars)), "low": r2(min(b["l"] for b in or_bars)),
+        res["opening_range"] = {"high": quote(max(b["h"] for b in or_bars)), "low": quote(min(b["l"] for b in or_bars)),
                                 "minutes": or_minutes, "bars": len(or_bars), "of": n_or,
                                 "complete": local >= or_end, "avg_volume": int(round(avg_vol))}
     if setup == "orb":
@@ -493,17 +515,20 @@ def evaluate(chart, now_utc, setup="orb", or_minutes=15, interval="5m", level=No
         if not or_bars:
             res.update(status="no-data", phase="open", reason="Yahoo sent no bars for the opening range")
             return res
-        lvl = max(b["h"] for b in or_bars)
+        if len(or_bars) != n_or:
+            res.update(status="no-data", phase="open", reason="the opening range has missing bars")
+            return res
+        lvl = min(b["l"] for b in or_bars) if below else max(b["h"] for b in or_bars)
     else:
         lvl = float(level)
-    res["level"] = r2(lvl)
+    res["level"] = quote(lvl)
 
     first_slot = n_or if setup == "orb" else 0
     trig, thin = None, []
     for b in bars:
         if b["slot"] < first_slot or b["end"] < before or b["end"] > cutoff:
             continue
-        if b["c"] > lvl:
+        if (b["c"] < lvl if below else b["c"] > lvl):
             vx = (b["v"] / avg_vol) if avg_vol else None
             if min_volume_x and (vx is None or vx < min_volume_x):
                 thin.append(b)
@@ -518,9 +543,9 @@ def evaluate(chart, now_utc, setup="orb", or_minutes=15, interval="5m", level=No
     if trig:
         vx = (trig["v"] / avg_vol) if avg_vol else None
         res.update(status="triggered", phase="open" if local < close_dt else "after-close",
-                   reason="the %s bar closed above %s" % (short(trig["et"]), "the range high" if setup == "orb" else "the level"))
+                   reason="the %s bar closed %s %s" % (short(trig["et"]), relation, range_name if setup == "orb" else "the level"))
         res["trigger"] = {"time": ampm(trig["end"]), "close_time": hm(trig["end"]), "bar_start": hm(trig["et"]),
-                          "bar_index": trig["slot"], "price": r2(trig["c"]), "close": trig["c"],
+                          "bar_index": trig["slot"], "price": quote(trig["c"]), "close": trig["c"],
                           "volume": trig["v"], "volume_x": r2(vx), "pct_over": r2(100.0 * (trig["c"] / lvl - 1))}
         res["minutes_since"] = int((local - trig["end"]).total_seconds() // 60)
         if dt and utc_of(dt) < eastern_to_utc(trig["end"]):
@@ -530,24 +555,25 @@ def evaluate(chart, now_utc, setup="orb", or_minutes=15, interval="5m", level=No
     if not bars:
         res.update(status="no-data", phase="open", reason="Yahoo sent no bars for %s yet" % day.isoformat())
         return res
-    what = "close above the range high $%.2f" % lvl if setup == "orb" else "close above $%.2f" % lvl
+    what = "close %s %s $%.2f" % (relation, range_name if setup == "orb" else "the level", lvl)
     if local >= cutoff and not (pending and pending["end"] <= cutoff):
         res.update(status="expired", phase="after-close" if local >= close_dt else "after-cutoff",
                    reason="no %s by %s, the last time for a new entry%s" % (
                        what, short(cutoff), " (1:00 p.m. early close today)" if early else ""))
         return res
     res["phase"] = "open"
-    if last["c"] > lvl and last in thin:
-        res["reason"] = "the %s bar closed above at $%.2f but on %.2fx the range's volume, under your %.2fx" % (
-            short(last["et"]), last["c"], last["v"] / avg_vol if avg_vol else 0, min_volume_x)
-    elif last["c"] > lvl and last["end"] < before:
-        res["reason"] = "the %s bar closed above at $%.2f, but no entries before %s (config)" % (
-            short(last["et"]), last["c"], short(before))
+    crossed = last["c"] < lvl if below else last["c"] > lvl
+    if crossed and last in thin:
+        res["reason"] = "the %s bar closed %s at $%.2f but on %.2fx the range's volume, under your %.2fx" % (
+            short(last["et"]), relation, last["c"], last["v"] / avg_vol if avg_vol else 0, min_volume_x)
+    elif crossed and last["end"] < before:
+        res["reason"] = "the %s bar closed %s at $%.2f, but no entries before %s (config)" % (
+            short(last["et"]), relation, last["c"], short(before))
     else:
         gap = lvl - last["c"]
         res["reason"] = "last close $%.2f (%s bar), $%.2f %s %s (%+.2f%%)" % (
             last["c"], short(last["et"]), abs(gap), "under" if gap >= 0 else "over",
-            "the range high $%.2f" % lvl if setup == "orb" else "the level $%.2f" % lvl,
+            (range_name + " $%.2f") % lvl if setup == "orb" else "the level $%.2f" % lvl,
             100.0 * (last["c"] / lvl - 1))
     return res
 
@@ -561,12 +587,14 @@ def entry_doc(res, now_utc):
     """trader/entry.json, the contract shape (plus a plain-words reason)."""
     t = res.get("trigger") or {}
     orr = res.get("opening_range")
-    return {"created_by": "trader-entry", "symbol": res["symbol"], "setup": res["setup"], "side": "buy",
+    doc = {"created_by": "trader-entry", "symbol": res["symbol"], "setup": res["setup"], "side": res["side"],
             "date": res["date"], "status": res["status"], "time": t.get("time"), "bar_start": t.get("bar_start"),
             "bar_index": t.get("bar_index"), "price": t.get("price"), "level": res.get("level"),
             "interval": res["interval"],
             "opening_range": {"high": orr["high"], "low": orr["low"], "minutes": orr["minutes"]} if orr else None,
-            "source": "yahoo", "checked_at": iso(now_utc), "reason": res.get("reason")}
+            "source": "offline-cfd-bars" if res.get("instrument_type") == "cfd" else "yahoo", "checked_at": iso(now_utc), "reason": res.get("reason")}
+    doc.update({k: res[k] for k in ("instrument_type", "currency", "contract", "leverage", "spread", "price_basis", "analysis_only", "paper") if k in res})
+    return doc
 
 
 def write_json(path, doc):
@@ -586,6 +614,8 @@ SHORT = {"pre-open": "not open", "forming": "forming", "closed": "closed"}
 
 
 def setup_name(res):
+    if res.get("side") == "sell":
+        return "opening-range breakdown (%d-minute range)" % res["or_minutes"] if res["setup"] == "orb" else "close below a level"
     if res["setup"] == "orb":
         return "opening-range breakout (%d-minute range)" % res["or_minutes"]
     return "close above $%.2f" % res["level"] if res["level"] is not None else "close above a level"
@@ -595,8 +625,9 @@ def describe(res):
     """Plain lines for a person."""
     when = datetime.datetime.strptime(res["now"], "%Y-%m-%d %H:%M:%S")
     bars = "5-minute" if res["interval"] == "5m" else "1-minute"
-    head = "%s  %s %s ET  %s on %s bars (Yahoo, free, can lag)" % (
-        res["symbol"], when.strftime("%a %Y-%m-%d"), when.strftime("%H:%M"), setup_name(res), bars)
+    head = "%s  %s %s ET  %s on %s bars (%s)" % (
+        res["symbol"], when.strftime("%a %Y-%m-%d"), when.strftime("%H:%M"), setup_name(res), bars,
+        "offline CFD contract prices" if res.get("instrument_type") == "cfd" else "Yahoo, free, can lag")
     if res.get("data_time") and res["data_time"] <= res["now"] and res["data_time"][:10] == res["date"]:
         head += ", data to %s" % res["data_time"][11:]
     out = [head]
@@ -610,9 +641,10 @@ def describe(res):
     label = PHASE_LABEL.get(res["phase"]) or LABEL.get(res["status"], res["status"].upper())
     t = res.get("trigger")
     if t:
-        out.append("TRIGGERED %s at $%.2f: the %s bar (bar %d) closed above %s $%.2f (%+.2f%%%s)." % (
+        out.append("TRIGGERED %s at $%.2f: the %s bar (bar %d) closed %s %s $%.2f (%+.2f%%%s)." % (
             t["time"], t["price"], short(datetime.datetime.strptime(t["bar_start"], "%H:%M")), t["bar_index"],
-            "the range high" if res["setup"] == "orb" else "the level", res["level"], t["pct_over"],
+            "below" if res["side"] == "sell" else "above",
+            ("the range low" if res["side"] == "sell" else "the range high") if res["setup"] == "orb" else "the level", res["level"], t["pct_over"],
             (", %.2fx the range's volume" % t["volume_x"]) if res.get("min_volume_x") and t.get("volume_x") else ""))
         step = INTERVALS[res["interval"]] // 60
         if res.get("minutes_since", 0) > step and res.get("last"):
@@ -625,7 +657,7 @@ def describe(res):
             out.append("Nothing was placed.")
         else:
             out.append("This is the moment to get in, if you take the trade. Nothing was placed.")
-        out.append("Next: set the stop and target BEFORE you buy: /trader-exit "
+        out.append("Next: set the stop and target BEFORE you %s: /trader-exit " % ("enter the paper short" if res["side"] == "sell" else "buy") +
                    "(exit.py plan --from trader/entry.json).")
     else:
         out.append("%s  %s." % (label, res["reason"]))
@@ -644,6 +676,8 @@ def describe(res):
             res["early_close"], res["no_entries_after"]))
     if not res.get("calendar_known"):
         out.append("Holiday list covers %s only: check nyse.com for this date." % " and ".join(map(str, CALENDAR_YEARS)))
+    if res.get("analysis_only"):
+        out.append("Analysis/paper only. No broker handoff.")
     return out
 
 
@@ -660,12 +694,12 @@ def bar_line(b, res):
         if b["slot"] == n_or - 1:
             note = "opening range set: high $%.2f, low $%.2f" % (orr["high"], orr["low"])
     elif t and t["bar_index"] == b["slot"]:
-        note = "TRIGGERED: closed above $%.2f (%+.2f%%). Get in now if you take it: %s, $%.2f" % (
-            lvl, t["pct_over"], t["time"], t["price"])
+        note = "TRIGGERED: closed %s $%.2f (%+.2f%%). Paper analysis: %s, $%.2f" % (
+            "below" if res["side"] == "sell" else "above", lvl, t["pct_over"], t["time"], t["price"])
     elif lvl is None:
         note = ""
-    elif b["c"] > lvl:
-        note = "above $%.2f" % lvl
+    elif (b["c"] < lvl if res["side"] == "sell" else b["c"] > lvl):
+        note = "%s $%.2f" % ("below" if res["side"] == "sell" else "above", lvl)
         if res["setup"] == "level" or b["slot"] >= n_or:
             avg = orr.get("avg_volume")
             if res.get("min_volume_x") and avg:
@@ -673,7 +707,7 @@ def bar_line(b, res):
             elif b["end"] < datetime.datetime.combine(b["et"].date(), parse_hhmm(res["no_entries_before"], "x")):
                 note += ", but no entries before %s" % res["no_entries_before"]
     else:
-        note = "$%.2f under $%.2f" % (lvl - b["c"], lvl)
+        note = "$%.2f %s $%.2f" % (abs(lvl - b["c"]), "over" if res["side"] == "sell" else "under", lvl)
     return "%5s bar  closed $%.2f  %s" % (start, b["c"], note)
 
 
@@ -782,8 +816,17 @@ def watch_loop(provider, clock, sleep, emit, opts, every=30, until=None, max_err
 # ---------------------------------------------------------------- commands
 
 def _opts(a, cfg):
-    if a.side in ("sell", "short"):
-        raise EntryError("v2 plans longs only: no short entries. Watch for a buy (--side buy) instead.")
+    instrument = None
+    if a.instrument:
+        try:
+            with open(a.instrument, encoding="utf-8") as handle:
+                instrument = json.load(handle)
+            if not isinstance(instrument, dict):
+                raise ValueError("instrument must be an object")
+        except (OSError, ValueError) as exc:
+            raise EntryError("invalid instrument file: " + str(exc))
+        if instrument.get("instrument_type") == "cfd" and not a.offline:
+            raise EntryError("CFD entry requires verified --offline contract-price bars; no Yahoo stock substitution")
     if a.setup == "orb" and a.level is not None:
         raise EntryError("--level is for --setup level (an orb's level is its range high)")
     if a.min_volume_x is not None and a.min_volume_x <= 0:
@@ -791,7 +834,7 @@ def _opts(a, cfg):
     if a.level is not None and a.level <= 0:
         raise EntryError("--level must be a price above 0")
     return {"setup": a.setup, "or_minutes": a.or_minutes, "interval": a.interval, "level": a.level,
-            "min_volume_x": a.min_volume_x, "cfg": cfg}
+            "min_volume_x": a.min_volume_x, "cfg": cfg, "side": a.side or "buy", "instrument": instrument}
 
 
 def _load(a, sym, now):
@@ -871,6 +914,8 @@ def cmd_watchlist(a):
     hits = [h for h in (doc.get("hits") or []) if isinstance(h, dict) and h.get("symbol")]
     if not hits:
         raise EntryError("no hits in %s: the scanner found nothing to watch" % a.watchlist)
+    if doc.get("instrument_type") == "cfd" and not a.offline:
+        raise EntryError("CFD watchlist requires exact --offline contract bars")
     if a.offline and not os.path.isdir(a.offline):
         raise EntryError("watchlist --offline wants a folder of <TICKER>.json files")
     now = parse_now(a.now) if a.now else None
@@ -878,6 +923,11 @@ def cmd_watchlist(a):
     for i, h in enumerate(hits):
         sym = str(h["symbol"]).upper()
         o = dict(opts)
+        if o["instrument"] is None and doc.get("instrument_type") == "cfd":
+            o["instrument"] = {k: doc[k] for k in ("instrument_type", "currency", "contract", "price_basis") if k in doc}
+            o["instrument"].update(symbol=sym, spread=doc.get("spread"))
+        if a.side is None:
+            o["side"] = h.get("side") or doc.get("side") or "buy"
         if a.setup == "level" and o["level"] is None:
             o["level"] = h.get("level")
         try:
@@ -921,7 +971,8 @@ def main(argv=None):
         p.add_argument("--interval", choices=["5m", "1m"], default="5m")
         p.add_argument("--level", type=float, help="the price to close above (--setup level)")
         p.add_argument("--min-volume-x", type=float, help="trigger bar volume vs the range bars' average")
-        p.add_argument("--side", default="buy", choices=["buy", "long", "sell", "short"], help="v2: buy only")
+        p.add_argument("--side", choices=["buy", "long", "sell", "short"], help="default long; inherits watchlist direction; short is analysis/paper only")
+        p.add_argument("--instrument", help="verified instrument/CFD terms JSON; CFD requires --offline")
         p.add_argument("--now", help='pretend it is this New York time, e.g. "2026-10-19 10:15"')
         p.add_argument("--offline", metavar="PATH", help="saved Yahoo chart JSON (.json/.json.gz) or a folder")
         p.add_argument("--config", default="trader/config.json")
