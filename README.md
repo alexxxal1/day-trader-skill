@@ -1,6 +1,6 @@
 # The Day Trader skill
 
-11 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
+12 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
 
 Free, MIT, no signup, no API key. The tools are plain Python that read free
 public data: Yahoo Finance charts, Nasdaq Trader's symbol lists, SEC EDGAR
@@ -57,7 +57,7 @@ The tools need Python 3.8 or newer. Nothing to pip install. The SEC tools
 email in `trader/config.json` (`"sec_user_agent": "Your Name you@example.com"`)
 or in the `SEC_USER_AGENT` environment variable.
 
-## The eleven
+## The twelve
 
 | command | job | what it does |
 | --- | --- | --- |
@@ -72,6 +72,7 @@ or in the `SEC_USER_AGENT` environment variable.
 | `/trader-alerts` | Price Alerts | Rings when a price, a stop or the opening bell hits. |
 | `/trader-analyst` | Earnings Analyst | Reads earnings reports and sums up what changed. |
 | `/trader-pelosi` | Pelosi Tracker | Reads Congress's stock-trade disclosures the minute they are filed. |
+| `/trader-sentiment` | Retail Sentiment Analyst | Reads Plus500 +Insights screenshots, compares positioning with price action and checks the existing skills. Paper analysis only; incomplete evidence means KEIN TRADE. |
 
 ## How to use it
 
@@ -141,7 +142,14 @@ python3 trader-alerts/alerts.py add --from-plan                        # stop, t
 python3 trader-alerts/alerts.py check                                  # rings what hit, once
 python3 trader-analyst/facts.py TSLA                                   # quarters, growth, EPS
 python3 trader-pelosi/ptr.py index --member pelosi                     # her PTRs this year
+python3 trader-sentiment/sentiment.py trader-sentiment/screenshot.example.json --extract-only
 ```
+
+`trader-sentiment` uses the assistant's image reading to transcribe a screenshot;
+its Python helper validates that JSON offline and never connects a broker or
+places an order. See [its skill](trader-sentiment/SKILL.md) for the evidence
+contract and a synthetic example. CFD and short candidates remain analysis
+biases with `KEIN TRADE`: the current entry/exit pipeline plans equity longs.
 
 ```bash
 python3 -m unittest discover -s tests -v

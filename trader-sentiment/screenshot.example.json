@@ -1,0 +1,81 @@
+{
+  "source": "Plus500 +Insights",
+  "synthetic": true,
+  "screenshot": {
+    "file": "SYNTHETIC-NOT-A-REAL-SCREENSHOT",
+    "captured_at": "2026-11-06T10:15:00-05:00",
+    "locale": "de-DE",
+    "category": "highest_buy",
+    "sentiment_period": "Letzte 24 Stunden"
+  },
+  "candidates": [
+    {
+      "instrument": "Tesla CFD (synthetisches Beispiel)",
+      "symbol": "TSLA",
+      "instrument_type": "cfd",
+      "currency": "USD",
+      "buy_pct": "91 %",
+      "sell_pct": "9 %",
+      "daily_change_pct": "-2,40 %",
+      "buy_price": "364,20",
+      "sell_price": "364,00",
+      "spread": null,
+      "leverage": "1:5",
+      "context": {
+        "market": {
+          "symbol": "TSLA",
+          "instrument_type": "cfd",
+          "currency": "USD",
+          "mapping_verified": true,
+          "same_price_basis": true,
+          "source": "SYNTHETIC offline CFD bars; no live source",
+          "as_of": "2026-11-06T15:15:00Z",
+          "interval": "5m",
+          "sentiment_period": "Letzte 24 Stunden",
+          "period_verified": true,
+          "period_change_pct": -2.4,
+          "bars": [
+            {"close_time": "2026-11-06T15:05:00Z", "close": 366.0},
+            {"close_time": "2026-11-06T15:10:00Z", "close": 365.0},
+            {"close_time": "2026-11-06T15:15:00Z", "close": 364.0}
+          ]
+        }
+      }
+    },
+    {
+      "instrument": "Nvidia CFD (synthetisches Beispiel)",
+      "symbol": "NVDA",
+      "instrument_type": "cfd",
+      "currency": "USD",
+      "category": "highest_sell",
+      "buy_pct": "8 %",
+      "sell_pct": "92 %",
+      "daily_change_pct": "+1,20 %",
+      "buy_price": "180,10",
+      "sell_price": "180,00",
+      "spread": "0,10",
+      "spread_unit": "price",
+      "leverage": null,
+      "context": {
+        "market": {
+          "symbol": "NVDA",
+          "instrument_type": "cfd",
+          "currency": "USD",
+          "mapping_verified": true,
+          "same_price_basis": true,
+          "source": "SYNTHETIC offline CFD bars; no live source",
+          "as_of": "2026-11-06T15:15:00Z",
+          "interval": "5m",
+          "sentiment_period": "Letzte 24 Stunden",
+          "period_verified": true,
+          "period_change_pct": 1.2,
+          "bars": [
+            {"close_time": "2026-11-06T15:05:00Z", "close": 178.0},
+            {"close_time": "2026-11-06T15:10:00Z", "close": 179.0},
+            {"close_time": "2026-11-06T15:15:00Z", "close": 180.0}
+          ]
+        }
+      }
+    }
+  ]
+}
