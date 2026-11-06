@@ -1,10 +1,11 @@
 # The Day Trader skill
 
-12 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
+13 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
 
-Free, MIT, no signup, no API key. The tools are plain Python that read free
-public data: Yahoo Finance charts, Nasdaq Trader's symbol lists, SEC EDGAR
-and the House Clerk.
+Free, MIT. Core tools need no signup or API key. Optional live social data
+from X requires an official API token and API access. The tools are plain
+Python that read public data: Yahoo Finance charts, Nasdaq Trader's symbol
+lists, SEC EDGAR and the House Clerk, plus optional official X API data.
 
 One scans thousands of charts for setups. Another tracks breaking news on
 every stock you watch. One watches a setup bar by bar and tells you the moment
@@ -57,12 +58,13 @@ The tools need Python 3.8 or newer. Nothing to pip install. The SEC tools
 email in `trader/config.json` (`"sec_user_agent": "Your Name you@example.com"`)
 or in the `SEC_USER_AGENT` environment variable.
 
-## The twelve
+## The thirteen
 
 | command | job | what it does |
 | --- | --- | --- |
 | `/trader-scanner` | Chart Scanner | Scans thousands of charts for setups: opening-range breakouts, flags, oversold bounces. |
 | `/trader-news` | News Monitor | Tracks breaking news on every stock you watch and flags what moves it. |
+| `/trader-social` | Social Catalyst Monitor | Reviews Musk/Trump/company posts with source verification and per-ticker market/setup checks; X API only, Truth Social input only, paper analysis. |
 | `/trader-entry` | Entry Timer | Watches a setup bar by bar and tells you the moment to get in. |
 | `/trader-exit` | Exit Planner | Sets your stop and your target before you enter, so you know when to get out. |
 | `/trader-timemachine` | Time Machine | Replays every possible outcome of a trade before you risk a dollar: 10,000 simulated sessions plus every past time the setup fired. |
@@ -131,6 +133,8 @@ python3 trader-scanner/scan.py universe                                # ~5,900 
 python3 trader-scanner/scan.py daily                                   # pre-market setups, whole universe
 python3 trader-scanner/scan.py orb --at 10:15                          # opening-range breakouts so far
 python3 trader-news/news.py --tickers TSLA --hours 12                  # headlines, 8-Ks, today's move
+python3 trader-social/social.py analyze --posts trader/social-posts.json --evidence trader/social-evidence.json --json
+python3 trader-social/social.py x --account elonmusk                  # optional X_BEARER_TOKEN + api.x.com
 python3 trader-entry/entry.py check TSLA --setup orb                   # waiting / triggered / expired
 python3 trader-entry/entry.py watch TSLA --every 30                    # bar by bar until it triggers
 python3 trader-exit/exit.py plan --stop or-mid --target 1R --write     # -> trader/plan.json
@@ -155,10 +159,20 @@ biases with `KEIN TRADE`: the current entry/exit pipeline plans equity longs.
 python3 -m unittest discover -s tests -v
 ```
 
-The tests run offline, on fixtures cut from real data: TSLA's 5-minute bars
-for the 60 days to October 19 2026, the 10:15 AM opening-range scan, Yahoo's
+The tests run offline. Social tests use explicitly synthetic scenarios and
+mocked API responses, never claims about actual posts. Other fixtures are cut
+from real data: TSLA's 5-minute bars for the 60 days to October 19 2026, the
+10:15 AM opening-range scan, Yahoo's
 TSLA headlines that morning, the House Clerk's 2026 index, real PTR text and
 real XBRL facts. They reproduce every number in the example above.
+
+`trader-social` never sends orders. A post alone cannot produce a trading
+candidate: it needs fresh market evidence and six reviewed skill reports.
+See [the social skill](trader-social/SKILL.md) for the local evidence contract,
+watchlist, source policy and API requirements. The current native pipeline
+supports stock long/short and verified USD stock-CFD long/short in paper
+analysis. Social evidence must preserve the exact instrument, direction and
+contract identity; missing market or sentiment confirmation means KEIN TRADE.
 
 ## Fine print
 
@@ -209,6 +223,7 @@ wash sales likely. Nothing here is tax advice.
 ```
 trader-scanner/     SKILL.md, scan.py
 trader-news/        SKILL.md, news.py
+trader-social/      SKILL.md, social.py, x_api.py, watchlist.json
 trader-entry/       SKILL.md, entry.py
 trader-exit/        SKILL.md, exit.py
 trader-timemachine/ SKILL.md, timemachine.py
