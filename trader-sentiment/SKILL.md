@@ -131,7 +131,12 @@ geaendert werden. Lade keine Keys, starte keinen Login und verbinde keinen Broke
    ohne `--write`. Zahlen sind ein Beispiel, niemals aus dem Beispiel in
    aktuelle Analysen uebernehmen. Fuer ein Level-Setup muss ein fachlich
    begruendeter Stop vorliegen. Der Plan muss zum exakten Entry passen.
-5. **trader-risk:** expliziten Paper-Kontostand, Positionsgroesse, aktuelle
+5. **trader-budget:** Positionsgroesse im Speicher mit `size_trade()` aus
+   dem exakten Plan berechnen. Verlust am Stop inklusive Spread/Kosten,
+   Notional-Limits und Margin-/Cash-Reserve begrenzen die Stueckzahl. Eine
+   kleinere explizite Paper-Menge ist moeglich, eine groessere blockiert.
+   Keine Orderdatei schreiben und keine Limits automatisch aktivieren.
+6. **trader-risk:** expliziten Paper-Kontostand, Positionsgroesse, aktuelle
    Preise, Tagesrisiko-/Historienstand und bestehende Limits pruefen. Der
    Helfer ruft die reine `check()`-Funktion aus `trader-risk/check.py` fuer
    den exakten hypothetischen Plan im Speicher auf. Er akzeptiert kein bloss
@@ -139,14 +144,87 @@ geaendert werden. Lade keine Keys, starte keinen Login und verbinde keinen Broke
    Fehlen diese Daten, bleibt das Ergebnis `KEIN TRADE`. Niemals Limits
    abschalten oder ein leeres reales Konto ausdenken, um PASS zu erhalten.
 
-**Bestehende technische Grenzen:** Entry und Exit unterstuetzen nur Long;
-Risk verwendet US-Aktien-/USD- und Stueckzahlregeln. CFD-Kontraktwert,
-Hebel/Margin, andere Handelskalender und Short-Entry/Exit sind damit nicht
-verifiziert. Deshalb wird ein solcher Kandidat auch bei erkennbarem LONG-
-oder SHORT-Bias als **KEIN TRADE** ausgegeben. Der Helfer gibt in dieser
-Version kein finales SHORT frei. Fuer eine getrennte Aktien-Paperstudie
-neue, tatsaechliche Aktienkurse und Metadaten verwenden und das Instrument
-ausdruecklich als eigene Studie bezeichnen; CFD-Quotes niemals uebertragen.
+**Unterstuetzte Paper-Kette:** Long- und Short-Aktien sowie Long-/Short-CFDs
+auf verifizierte USD-Aktien. Ein Short braucht ein echtes `orb_short`-Setup
+aus `scan.py orb --side sell`, einen abgeschlossenen Entry unter dem
+Range-Tief/Level, einen Stop ueber dem Entry und ein Ziel darunter. Entry
+und Exit erhalten `--side sell`; die Richtung bleibt im JSON erhalten.
+Ein Long-Setup darf nicht bloss zum Short umbenannt werden.
+
+CFD-Balken muessen zum exakten Vertragsinstrument passen, nicht nur zur
+zugrunde liegenden Aktie. Entry benoetigt `--instrument FILE --offline
+CHART`; Exit erbt den Vertrag aus der Entry-Datei oder liest `--instrument`.
+Scanner liest die gleichen verifizierten Vertragsbalken mit `orb --instrument
+FILE --offline CHART --no-write --json`. Fuer News
+wird die verifizierte zugrunde liegende Aktie inhaltlich mitgeprueft.
+Nur der regulaere NYSE-Kalender 2026/2027 und USD werden unterstuetzt.
+Andere Basiswerte/Kalender, Optionen und Futures bleiben ausgeschlossen.
+Es gibt keinen Live-CFD-Datenadapter, Margin-Liquidationssimulator oder
+Broker-/Time-Machine-/Alert-Ausfuehrungspfad fuer diese Kandidaten.
+
+## CFD contract
+
+Die verifizierten Stammdaten stehen unter `candidates[].contract` und
+muessen identisch in `context.market`, `context.scanner`, `context.entry` und `context.exit`
+weitergegeben werden. `market.price_basis`, Entry und Exit sind `mid`.
+Das folgende Instrument-Dateiformat ist synthetisch, keine echten Konditionen:
+
+```json
+{
+  "symbol": "TSLA-CFD-1",
+  "instrument_type": "cfd",
+  "currency": "USD",
+  "price_basis": "mid",
+  "spread": 0.1,
+  "leverage": 5,
+  "contract": {
+    "verified": true,
+    "source": "SYNTHETIC example, verify actual contract specification",
+    "underlying_type": "stock",
+    "underlying_symbol": "TSLA",
+    "calendar": "NYSE",
+    "contract_size": 10,
+    "qty_step": 0.1,
+    "min_qty": 0.1,
+    "tick_size": 0.01,
+    "margin_rate": 0.2,
+    "commission_per_contract": 0.5,
+    "financing_reserve_per_contract": 0.25,
+    "slippage": 0.02,
+    "guaranteed_stop": false,
+    "guaranteed_stop_fee_per_contract": 0
+  }
+}
+```
+
+Alle Vertragsfelder sind erforderlich; auch bekannte Nullkosten explizit
+angeben. `verified: true` ersetzt keine tatsaechliche Quellenpruefung.
+`contract_size` ist die Basiswertmenge pro Vertrag. Spread und Slippage sind
+Quote-Preiseinheiten fuer den Roundtrip, Gebuehren und Finanzierungsreserve
+USD pro Vertrag. Finanzierung/Overnight- und ggf. Aktien-Leihkosten bleiben
+moegliche Zusatzkosten; die Reserve ist keine Preisgarantie.
+
+Verlust am Stop = `qty * (abs(entry - stop) * contract_size + spread *
+contract_size + slippage * contract_size + commission_per_contract +
+financing_reserve_per_contract + guaranteed_stop_fee_per_contract)`.
+Die gleichen Kosten werden vom Brutto-Ertrag fuer Reward:Risk abgezogen.
+Der volle Spread wird genau einmal berechnet: keine Ask-/Bid-Einstiegspreise
+zusaetzlich als Mid-Entry verwenden. CFD-Leverage und `margin_rate` muessen
+reziprok sein; der gemeinsame Helfer kann Leverage aus Margin ableiten.
+Hebel reduziert die benoetigte Margin, niemals den Verlust bei gleicher
+Position. Eine hoehere Hebelzahl verbessert keine Setup-Qualitaet.
+
+Paper-Konfiguration: `paper: true`, `require_stop: true`, explizit
+`allow_cfd: true`, `allow_margin: true` und fuer Short `allow_short: true`.
+Diese Freigaben werden nie selbst eingeschaltet. `max_loss_per_trade_usd`
+und Tageslimits beziehen sich auf den Verlust am Stop inklusive Kosten.
+Die Ausgabe nennt zusaetzlich `maximum_possible_loss_usd`: ohne verifizierten
+garantierten Stop ist dieser bei CFDs und Aktien-Shorts null, also keine
+verifizierte endliche Obergrenze. Ein normaler Stop kann durch Gaps/
+Slippage uebersprungen werden. `require_bounded_loss: true` verlangt optional
+eine verifizierte Obergrenze innerhalb des Trade-Verlustlimits. Ein garantierter Stop muss im exakten Vertrag samt
+Kosten belegt sein. Hebel/Margin und maximaler Verlust sind verschiedene
+Groessen; Margin ist keine Verlustgrenze.
 
 ## JSON-Vertrag und Offline-Helfer
 
@@ -162,7 +240,7 @@ Trade-Bestaetigung. Optional hat jede Kandidatenzeile einen `context`-Block:
 | `news_review` | `symbol`, `reviewed`, `blocking_catalyst`, `reason`; nur nach inhaltlicher Pruefung ausfuellen |
 | `entry` | Unveraenderte JSON-Ausgabe von `entry.py check ... --json`, inklusive Trigger und `minutes_since` |
 | `exit` | Unveraenderte JSON-Ausgabe von `exit.py plan ... --json` |
-| `risk_inputs` | `as_of` mit Zeitzone, `config`, `portfolio`, `state` mit `orders`-Historie und geplante ganze `qty`; echte Paper-Daten oder klar bezeichnete synthetische Offline-Fixtures |
+| `risk_inputs` | `as_of` mit Zeitzone, `config`, `portfolio`, `state` mit `orders`-Historie und geplante `qty` (Aktien ganzzahlig, CFD laut `qty_step`/`min_qty`); echte Paper-Daten oder klar bezeichnete synthetische Offline-Fixtures |
 
 Der Helfer ist eine deterministische Konsistenzpruefung, kein Nachweis der
 Echtheit einer Transkription oder einer JSON-Quelle. Der Assistent muss
@@ -214,6 +292,11 @@ Qualitaet bezeichnet nur die Vollstaendigkeit/Konsistenz der Regeln, keine
 Gewinnwahrscheinlichkeit. "hoch" braucht alle fuenf Pruefungen inklusive
 echtem `trader-risk`-PASS; ein kontraeres, sonst bestaetigtes Szenario bleibt
 "mittel". Nenne die verwendeten Skills, Kursquellen und Datenzeitpunkte.
+Die Ausgabe enthaelt die berechnete Budget-Groesse, Verlust am Stop,
+Kosten, Margin und die separate maximale Verlustgrenze. Die In-Memory-
+Risikopruefung hat einen `analysis:`-Fingerprint und speichert keine
+Broker-Freigabe. Vollstaendige Evidenz kann LONG oder SHORT liefern;
+fehlende oder widerspruechliche CFD-Daten bleiben KEIN TRADE.
 
 ## Safety
 

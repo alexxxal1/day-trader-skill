@@ -220,12 +220,16 @@ class Cli(unittest.TestCase):
         self.assertEqual(self.plan("--stop", "pct:1")[0], 0)
 
         code, _, err = self.plan("--side", "sell")
-        self.assertIn("v2 plans longs only", err)
+        self.assertIn("give --stop", err)
         self.write(os.path.join("trader", "entry.json"), dict(REEL_ENTRY, side="sell"))
-        code, _, err = self.plan()
-        self.assertIn("longs only", err)
+        code, text, err = self.plan("--stop", "price:370", "--json")
+        self.assertEqual(code, 0, err)
+        short = json.loads(text)
+        self.assertEqual(short["side"], "sell")
+        self.assertGreater(short["stop"], short["entry"])
+        self.assertLess(short["target"], short["entry"])
         code, _, err = self.plan("--stop", "price:364.10")
-        self.assertIn("longs only", err)
+        self.assertIn("short's stop goes above", err)
         os.remove(os.path.join("trader", "entry.json"))
         code, _, err = self.plan()
         self.assertIn("no entry", err)
@@ -280,7 +284,7 @@ class SkillDoc(unittest.TestCase):
         self.assertGreater(len(text.splitlines()), 60)
         self.assertEqual(text[text.index("## Safety"):], risk[risk.index("## Safety"):])
         low = " ".join(text.lower().split())
-        for must in ("before the entry", "a stop is a plan, not a guarantee", "day trading loses most people money", "/trader-timemachine", "/trader-budget", "longs only", "$358.32", "$370.04", "$5.86", "375.90", "too tight to survive the spread"):
+        for must in ("before the entry", "a stop is a plan, not a guarantee", "day trading loses most people money", "/trader-timemachine", "/trader-budget", "--side sell", "$358.32", "$370.04", "$5.86", "375.90", "too tight to survive the spread"):
             self.assertIn(must, low)
         for never in ("\u2014", "tick " + "by tick", "real " + "time", "pro" + "fit"):
             self.assertNotIn(never, low)

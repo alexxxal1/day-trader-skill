@@ -7,7 +7,8 @@ description: >-
   that CLOSES above the range high, or above a level you give it (like a
   20-day high from the scanner), with an optional volume check. Says waiting
   and how far, triggered with the time and the price, expired, or not open
-  yet, and writes trader/entry.json for /trader-exit. Long side only. It never
+  yet, and writes trader/entry.json for /trader-exit. Long and paper short;
+  verified CFD bars are supported offline for analysis only. It never
   places an order. Use when the user says "tell me when to get in", "watch
   TSLA", "has it broken out", "did it break the opening range", "entry
   signal", "time my entry", "check my watchlist", or after /trader-scanner
@@ -120,7 +121,8 @@ and the trigger moves to 10:35 AM at 365.75 (the 10:30 bar, 7.98x).
   and can lag. Say so when a minute matters.
 - A signal is information, not an order, and not a promise. Nothing here
   promises winning trades or money.
-- Long side only. v2 plans longs only. If the user wants a short, say that.
+- Long is the default. `--side sell` / `short` watches a completed close
+  below the range low (or below `--level`), with the same timing/volume rules.
 - One trigger per setup per day: the first close above. Later closes do not
   reset it.
 - Never call an entry early because a bar looks like it will close above.
@@ -131,6 +133,26 @@ It never places an order, never sizes a position, never sets the stop (that
 is `/trader-exit`), never moves the level after the fact, and never counts a
 bar that has not closed. It never runs `/trader-broker` from a background
 watch: nobody is there to say yes.
+
+## Short and CFD paper evidence
+
+`check SYMBOL --side sell --json` confirms a breakdown; a close exactly at
+the range low does not count. The saved entry preserves `side: sell` and
+`analysis_only: true`. Shorts never imply permission to borrow or execute.
+Budget and risk still need explicit `allow_short` and `allow_margin`.
+
+For a CFD, pass `--instrument FILE --offline CHART --json`. The instrument
+JSON contains `symbol`, `instrument_type: cfd`, `currency: USD`, `spread`,
+`price_basis: mid`, optional `leverage`, and the verified `contract` described
+in [trader-sentiment](../trader-sentiment/SKILL.md#cfd-contract).
+The OHLC symbol must equal the contract symbol, never the underlying ticker.
+No Yahoo stock quote is substituted for a CFD. Long/short direction, contract
+identity and valuation terms survive the entry-file handoff to trader-exit.
+Prices may use the contract's tick size, including sub-cent ticks.
+
+CFDs currently use only the regular NYSE session for a USD stock underlying,
+with verified holidays for 2026/2027. No options, futures, FX or commodity
+CFDs. Short and CFD output is analysis/paper only; no broker handoff.
 
 ## Safety
 

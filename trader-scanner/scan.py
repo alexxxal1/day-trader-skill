@@ -71,6 +71,7 @@ Exit code 0 when the scan found something, 1 when it did not or could not run.
 import argparse
 import datetime
 import gzip
+import importlib.util
 import json
 import os
 import re
@@ -619,14 +620,14 @@ def usable(bars, day, cutoff, n_range):
     return all(b["start"] == slot(day, k) for k, b in enumerate(bars))
 
 
-def orb_candidate(bars, n_range):
+def orb_candidate(bars, n_range, side="buy"):
     """Stage 1, closes only: some completed bar after the range closed at or above
     the highest close of the range. Necessary for a breakout (range high >= any range close)."""
-    top = max(b["c"] for b in bars[:n_range])
-    return any(b["c"] >= top for b in bars[n_range:])
+    top = (min if side == "sell" else max)(b["c"] for b in bars[:n_range])
+    return any((b["c"] <= top if side == "sell" else b["c"] >= top) for b in bars[n_range:])
 
 
-def orb_hit(bars, n_range):
+def orb_hit(bars, n_range, side="buy", exact_prices=False):
     """Stage 2, real highs and lows: the first completed bar to CLOSE above the range high."""
     rng = bars[:n_range]
     if any(b["h"] is None or b["l"] is None for b in rng):
@@ -635,12 +636,14 @@ def orb_hit(bars, n_range):
     ol = min(b["l"] for b in rng)
     for k in range(n_range, len(bars)):
         b = bars[k]
-        if b["c"] > oh:
+        level = ol if side == "sell" else oh
+        if (b["c"] < ol if side == "sell" else b["c"] > oh):
             closes_at = b["start"] + datetime.timedelta(minutes=BAR_MIN)
-            return {"price": round(b["c"], 2), "at": clock_label(closes_at),
+            quote = float if exact_prices else lambda value: round(value, 2)
+            return {"price": quote(b["c"]), "at": clock_label(closes_at),
                     "bar_start": b["start"].strftime("%H:%M"), "bar_index": k,
-                    "or_high": round(oh, 2), "or_low": round(ol, 2),
-                    "pct_over": round((b["c"] / oh - 1) * 100, 2), "_t": closes_at}
+                    "or_high": quote(oh), "or_low": quote(ol),
+                    "pct_over": round((b["c"] / level - 1) * 100, 2), "_t": closes_at}
     return None
 
 
@@ -684,11 +687,13 @@ def orb_window(now_utc, at, or_minutes, until, explicit_day=None):
 
 
 def scan_orb(stage1, symbols, day, cutoff, or_minutes, min_price=0.0, min_volume=0, confirm=None,
-             max_confirm=None):
+             max_confirm=None, side="buy", exact_prices=False):
     """stage1 = {SYM: series} with closes (spark or v8). confirm(sym) -> series with highs/lows
     (None = use the stage-1 series). With confirm and max_confirm, only the max_confirm most
     traded candidates (price x volume so far) are confirmed; the rest are counted as unconfirmed.
     Returns (hits, counts, failed {sym: why})."""
+    if side not in ("buy", "sell"):
+        raise ScanError("side must be buy or sell")
     n_range = or_minutes // BAR_MIN
     counts = {"requested": len(symbols), "fetched": 0, "unusable": 0, "illiquid": 0, "scanned": 0,
               "candidates": 0, "confirmed": 0, "unconfirmed": 0}
@@ -707,7 +712,7 @@ def scan_orb(stage1, symbols, day, cutoff, or_minutes, min_price=0.0, min_volume
             counts["illiquid"] += 1
             continue
         counts["scanned"] += 1
-        if orb_candidate(bars, n_range):
+        if orb_candidate(bars, n_range, side):
             cands.append((sym, bars, bars[-1]["c"] * vol))
     counts["candidates"] = len(cands)
     if confirm is not None and max_confirm and len(cands) > max_confirm:
@@ -727,9 +732,12 @@ def scan_orb(stage1, symbols, day, cutoff, or_minutes, min_price=0.0, min_volume
                 failed[sym] = "the v8 chart has a missing bar"
                 continue
         counts["confirmed"] += 1
-        h = orb_hit(full, n_range)
+        h = orb_hit(full, n_range, side, exact_prices)
         if h:
-            hits.append(dict({"symbol": sym, "setups": ["orb"]}, **h))
+            hit = dict({"symbol": sym, "setups": ["orb_short" if side == "sell" else "orb"]}, **h)
+            if side == "sell":
+                hit.update(side="sell", analysis_only=True, paper=True)
+            hits.append(hit)
     hits.sort(key=lambda x: (x["_t"], x["symbol"]))
     for h in hits:
         del h["_t"]
@@ -944,12 +952,32 @@ def cmd_orb(a):
     now = parse_now(a.now)
     at = parse_hhmm(a.at) if a.at else None
     cfg = read_config(a.config)
+    instrument = None
+    if a.instrument:
+        try:
+            with open(a.instrument, encoding="utf-8") as handle:
+                instrument = json.load(handle)
+            path = os.path.join(os.path.dirname(__file__), "..", "trader-risk", "exposure.py")
+            spec = importlib.util.spec_from_file_location("scanner_exposure", path)
+            exposure = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(exposure)
+            exposure.terms(dict(instrument, side=a.side))
+        except (OSError, ValueError, TypeError) as exc:
+            raise ScanError("invalid instrument contract: " + str(exc))
+        if instrument.get("instrument_type") != "cfd" or not a.offline:
+            raise ScanError("--instrument requires a CFD and verified --offline contract bars")
     until = parse_hhmm(a.until or cfg.get("no_entries_after") or "15:30", "--until")
     data = failed = None
     explicit_day = None
     offline_syms = None
     if a.offline:
         data, failed = load_offline(a.offline)
+        if instrument:
+            symbol = instrument["symbol"]
+            exact = [series for series in data.values() if series.get("meta", {}).get("symbol") == symbol]
+            if len(exact) != 1:
+                raise ScanError("offline data must identify the exact CFD symbol once; never substitute the underlying")
+            data, failed = {symbol: exact[0]}, {}
         offline_syms = sorted(set(data) | set(failed))
         if not a.now:
             days = [ts_to_eastern(s["t"][-1]).date() for s in data.values() if s["t"]]
@@ -978,7 +1006,7 @@ def cmd_orb(a):
                 progress(a, "  stage 2: %d v8 charts so far" % len(done))
             return parse_chart(yahoo_get(chart_path(sym, rng, "%dm" % BAR_MIN)), sym)
     hits, counts, failed2 = scan_orb(data, symbols, day, cutoff, a.or_minutes, a.min_price, a.min_volume, confirm,
-                                     a.max_confirm)
+                                     a.max_confirm, side=a.side, exact_prices=instrument is not None)
     failed = dict(failed or {})
     failed.update(failed2)
     nfailed = len([s for s in symbols if s in failed])
@@ -988,6 +1016,11 @@ def cmd_orb(a):
            "unconfirmed": counts["unconfirmed"], "source": "yahoo", "or_minutes": a.or_minutes,
            "interval": "%dm" % BAR_MIN,
            "filters": {"min_price": a.min_price, "min_volume": a.min_volume}, "note": NOTE, "hits": hits}
+    if a.side == "sell":
+        doc.update(side="sell", analysis_only=True, paper=True)
+    if instrument:
+        doc.update(instrument_type="cfd", currency="USD", contract=instrument["contract"], price_basis="mid",
+                   spread=instrument["spread"], analysis_only=True, paper=True, source="offline-cfd-bars")
     if a.offline:
         doc["offline"] = os.path.basename(a.offline.rstrip("/"))
     if not a.no_write:
@@ -995,8 +1028,9 @@ def cmd_orb(a):
     if a.json:
         print(json.dumps(dict(doc, counts=counts, seconds=round(time.time() - t0, 1)), indent=2))
         return 0 if hits else 1
-    print("Opening-range breakout scan, %s %s ET: %d-minute range (9:30 to %s), 5-minute bars, Yahoo."
-          % (day_label(day), clock_label(cutoff), a.or_minutes, clock_label(slot(day, a.or_minutes // BAR_MIN))))
+    print("Opening-range breakout scan, %s %s ET: %d-minute range (9:30 to %s), 5-minute bars, %s."
+          % (day_label(day), clock_label(cutoff), a.or_minutes, clock_label(slot(day, a.or_minutes // BAR_MIN)),
+             "offline CFD contract prices" if instrument else "Yahoo"))
     print("Fetched %s of %s charts%s; %s usable%s; %s candidates, %s confirmed with real highs and lows."
           % ("{:,}".format(counts["fetched"]), "{:,}".format(len(symbols)),
              (" (%s failed or had no data)" % "{:,}".format(nfailed)) if nfailed else "",
@@ -1007,16 +1041,17 @@ def cmd_orb(a):
         print("PARTIAL: %s more candidates were not checked (only the %s most traded are; --max-confirm 0 "
               "checks all)." % ("{:,}".format(counts["unconfirmed"]), "{:,}".format(a.max_confirm)))
     if hits:
-        print("%d of %s charts closed above their opening-range high by %s:"
+        print(("%d of %s charts closed below their opening-range low by %s:" if a.side == "sell" else "%d of %s charts closed above their opening-range high by %s:")
               % (len(hits), ("the %s checked" % "{:,}".format(counts["confirmed"])) if counts["unconfirmed"]
                  else "{:,}".format(counts["scanned"]), clock_label(cutoff)))
         for h in hits[:a.show]:
-            print("  %8s  %-6s %10s  range %s to %s  %+.2f%% over" % (
-                h["at"], h["symbol"], money(h["price"]), _p(h["or_low"]), _p(h["or_high"]), h["pct_over"]))
+            print("  %8s  %-6s %10s  range %s to %s  %+.2f%% %s" % (
+                h["at"], h["symbol"], money(h["price"]), _p(h["or_low"]), _p(h["or_high"]), h["pct_over"],
+                "vs low" if a.side == "sell" else "over"))
         if len(hits) > a.show:
             print("  ... and %d more in the watchlist (--show N for more)." % (len(hits) - a.show))
     else:
-        print("No chart closed above its opening-range high by %s." % clock_label(cutoff))
+        print("No chart closed %s by %s." % ("below its opening-range low" if a.side == "sell" else "above its opening-range high", clock_label(cutoff)))
     if not a.no_write:
         print("Wrote %s (mode orb, %d hit%s)." % (a.out, len(hits), "" if len(hits) == 1 else "s"))
     print(NOTE + " Next: pick one chart, then /trader-news TICKER and /trader-entry TICKER.")
@@ -1059,6 +1094,8 @@ def main(argv=None):
     common(p, 5.0, 1000000)
     p = sub.add_parser("orb", help="opening-range breakouts so far today")
     common(p, 5.0, 0)
+    p.add_argument("--side", choices=["buy", "sell"], default="buy", help="sell: paper short breakdowns below range low")
+    p.add_argument("--instrument", help="verified CFD descriptor; requires exact offline contract bars")
     p.add_argument("--or-minutes", type=int, default=15)
     p.add_argument("--max-confirm", type=int, default=MAX_CONFIRM,
                    help="v8 charts to fetch in stage 2, most traded first (%d; 0 = all)" % MAX_CONFIRM)

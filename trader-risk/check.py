@@ -62,6 +62,7 @@ so trader-broker only shows an order as ready if THIS exact order passed today.
 import argparse
 import datetime
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -270,6 +271,9 @@ def read_json(path, what, required=True):
 
 def fingerprint(order):
     """Same function in trader-broker/ticket.py: the exact order that was checked."""
+    if order.get("analysis_only") or order.get("instrument_type", "stock") != "stock":
+        blob = json.dumps(order, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return "analysis:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
     core = {k: order[k] for k in ALPACA_FIELDS if k in order and order[k] is not None}
     blob = json.dumps(core, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
@@ -370,11 +374,173 @@ def day_trades(state, today):
 
 # ---------------------------------------------------------------- the check
 
+def paper_exposure():
+    path = os.path.join(os.path.dirname(__file__), "exposure.py")
+    spec = importlib.util.spec_from_file_location("risk_exposure", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_analysis(orders, cfg, portfolio, prices, state, today, now, price_times):
+    """Paper entry checks. Never persists a broker-compatible approval.
+
+    Reserve collateral and loss cash sequentially; short sale proceeds are
+    never available buying power. Notional caps apply before leverage.
+    """
+    exposure = paper_exposure()
+    D = exposure.decimal
+    now = now or parse_now(None)
+    local = to_eastern(now)
+    today = today or local.date().isoformat()
+    c = dict(DEFAULTS, allow_cfd=False)
+    c.update(cfg or {})
+    prices, state = prices or {}, state or {}
+    top = []
+    done, entries, used_loss = [], [], D(0, "zero")
+    cash = equity = margin_used = D(0, "zero")
+    holdings = {}
+    try:
+        if not isinstance(portfolio, dict) or not isinstance(portfolio.get("positions"), list):
+            raise exposure.ExposureError("explicit paper portfolio with cash and positions required")
+        cash = D(portfolio.get("cash"), "portfolio cash")
+        positions = portfolio["positions"]
+        equity = D(portfolio.get("equity", cash if not positions else None), "portfolio equity", strict=True)
+        margin_used = D(portfolio.get("margin_used", 0 if not positions else None), "portfolio margin_used")
+        for position in positions:
+            symbol = position.get("symbol") or position.get("ticker")
+            if not symbol:
+                raise exposure.ExposureError("existing position needs symbol")
+            value = D(position.get("notional_usd"), "existing position notional_usd")
+            holdings[symbol] = holdings.get(symbol, D(0, "zero")) + value
+        if c.get("require_stop") is not True:
+            raise exposure.ExposureError("paper analysis requires require_stop=true")
+        if not isinstance(state.get("orders"), list):
+            raise exposure.ExposureError("explicit paper daily-risk orders history required")
+        buffer_pct = D(c.get("cash_buffer_pct"), "cash_buffer_pct")
+        if buffer_pct >= 100:
+            raise exposure.ExposureError("cash_buffer_pct must be under 100")
+        available = max(D(0, "zero"), cash - margin_used - equity * buffer_pct / 100)
+        loss_cap = D(c.get("max_loss_per_trade_usd"), "max_loss_per_trade_usd", strict=True)
+        daily_cap = D(c.get("max_daily_loss_usd"), "max_daily_loss_usd", strict=True)
+        position_cap = equity * D(c.get("max_position_pct"), "max_position_pct", strict=True) / 100
+        order_cap = D(c.get("max_order_usd"), "max_order_usd", strict=True)
+        min_order = D(c.get("min_order_usd"), "min_order_usd")
+        min_rr = D(c.get("min_reward_risk"), "min_reward_risk")
+        done = placed_today(state, today)
+        entries = [record for record in done if rec_is_entry(record)]
+        used_loss = sum((D(record.get("max_loss"), "daily entry max_loss") for record in entries), D(0, "zero"))
+        window_reasons, window_warnings = window_check(local, c)
+        ok, why = trading_day(local.date())
+        close = EARLY if local.date().isoformat() in NYSE_EARLY_CLOSE else CLOSE
+        if not ok or not OPEN <= local.time() < close:
+            window_reasons.append("window: outside regular NYSE session, including holidays/early closes")
+        if local.year not in CALENDAR_YEARS:
+            window_reasons.append("unverified trading calendar year")
+    except (exposure.ExposureError, TypeError, AttributeError) as exc:
+        top.append(str(exc))
+    seen, results = set(), []
+    accepted, accepted_loss = 0, D(0, "zero")
+    reserved = D(0, "zero")
+    for index, order in enumerate(orders, 1):
+        reasons, valuation = list(top), None
+        symbol = order.get("symbol")
+        side = order.get("side")
+        model = order.get("plan") if isinstance(order.get("plan"), dict) else {}
+        try:
+            if order.get("analysis_only") is not True or order.get("paper") is not True:
+                raise exposure.ExposureError("extended proposals require analysis_only=true and paper=true")
+            if model.get("symbol") != symbol or exposure.side(model.get("side")) != side:
+                raise exposure.ExposureError("proposal identity/direction differs from plan")
+            if order.get("instrument_type", "stock") != model.get("instrument_type", "stock"):
+                raise exposure.ExposureError("proposal instrument_type differs from plan")
+            t = exposure.permissions(model, c)
+            if t["kind"] == "stock" and (not symbol or not TICKER.fullmatch(symbol)):
+                raise exposure.ExposureError("only stock tickers supported, no options/futures")
+            if model.get("date") != today:
+                raise exposure.ExposureError("plan date must match today's New York date")
+            if order.get("type", "market") not in ("market", "limit"):
+                raise exposure.ExposureError("paper proposal type must be market or limit")
+            entry = D(model.get("entry"), "entry", strict=True)
+            reference_source = "plan"
+            if order.get("type") == "limit":
+                entry = D(order.get("limit_price"), "limit_price", strict=True)
+                reference_source = "limit"
+            elif symbol in prices:
+                p = D(prices[symbol], "fresh mid price", strict=True)
+                age = (now - price_times[symbol]).total_seconds() if price_times and symbol in price_times else None
+                if price_times is not None and (age is None or age < 0 or age > FRESH_MINUTES * 60):
+                    raise exposure.ExposureError("fresh, nonfuture mid price required")
+                if (side == "buy" and p > entry) or (side == "sell" and p < entry):
+                    entry, reference_source = p, "price"
+            valuation = exposure.metrics(model, entry, order.get("qty"))
+            if c.get("require_bounded_loss") and valuation["maximum_possible_loss"] is None:
+                reasons.append("loss: a verified maximum possible loss cap is required")
+            if not top:
+                q = valuation["qty"]
+                notional = q * valuation["notional_per_unit"]
+                reserve = q * valuation["cash_per_unit"]
+                if valuation["loss_at_stop"] > loss_cap:
+                    reasons.append("loss: loss at stop including spread/costs exceeds max_loss_per_trade_usd")
+                if c.get("require_bounded_loss") and valuation["maximum_possible_loss"] is not None and valuation["maximum_possible_loss"] > loss_cap:
+                    reasons.append("loss: maximum possible loss exceeds max_loss_per_trade_usd")
+                if used_loss + accepted_loss + valuation["loss_at_stop"] > daily_cap:
+                    reasons.append("daily loss: limit exceeded")
+                if valuation["reward_risk"] < min_rr:
+                    reasons.append("reward:risk below minimum after costs")
+                if not min_order <= notional <= order_cap:
+                    reasons.append("size: notional outside min/max order limits")
+                if holdings.get(symbol, D(0, "zero")) + notional > position_cap:
+                    reasons.append("position: gross notional exceeds cap before leverage")
+                if reserved + reserve > available:
+                    reasons.append("margin: collateral plus planned loss/cost reserve exceeds cash after buffer")
+                if symbol in {str(s).upper() for s in c.get("blocked", [])}:
+                    reasons.append("blocked: symbol on blocked list")
+                if (symbol, side) in seen or any(record.get("symbol") == symbol and record.get("side") == side for record in done):
+                    reasons.append("duplicate: paper entry already present")
+                if len(entries) + accepted >= int(c.get("max_trades_per_day") or 0):
+                    reasons.append("trades: max_trades_per_day reached")
+                if len(done) + accepted >= int(c.get("max_orders_per_day") or 0):
+                    reasons.append("daily limit: max_orders_per_day reached")
+                reasons.extend(window_reasons)
+                if c.get("pdt_guard") and day_trades(state, today)[0] >= 3:
+                    reasons.append("pdt: day trade limit reached")
+        except (exposure.ExposureError, TypeError, ValueError, AttributeError) as exc:
+            reasons.append(str(exc))
+        row = {"index": index, "symbol": symbol, "side": side, "kind": "entry", "amount": str(order.get("qty")) + " paper units",
+               "verdict": "BLOCK" if reasons else "PASS", "reasons": reasons, "warnings": [], "info": [],
+               "analysis_only": True, "max_loss": None, "reward_risk": None, "risk_per_share": None,
+               "entry_ref": None, "entry_ref_from": None, "stop": model.get("stop"), "target": model.get("target")}
+        if valuation:
+            row.update(exposure.summary(valuation), max_loss=exposure.usd(valuation["loss_at_stop"]),
+                       reward_risk=float(valuation["reward_risk"]), risk_per_share=float(valuation["risk_per_unit"]),
+                       entry_ref=float(valuation["entry"]), entry_ref_from=reference_source,
+                       value_usd=exposure.usd(valuation["qty"] * valuation["notional_per_unit"]))
+        try:
+            row["fingerprint"] = fingerprint(order)
+        except (TypeError, ValueError):
+            row.update(verdict="BLOCK", fingerprint="analysis:invalid")
+            row["reasons"].append("nonfinite or invalid proposal")
+        if row["verdict"] == "PASS":
+            accepted += 1
+            accepted_loss += valuation["loss_at_stop"]
+            reserved += valuation["qty"] * valuation["cash_per_unit"]
+            holdings[symbol] = holdings.get(symbol, D(0, "zero")) + valuation["qty"] * valuation["notional_per_unit"]
+        seen.add((symbol, side))
+        results.append(row)
+    return {"analysis_only": True, "paper": True, "date": today, "now_new_york": local.strftime("%Y-%m-%d %H:%M"),
+            "results": results, "pass": accepted, "block": len(results) - accepted, "warnings": top,
+            "cash_after": float(cash - margin_used - reserved),
+            "today": {"orders_placed": len(done), "entries_placed": len(entries),
+                      "loss_at_risk": float(used_loss) if not top else None}}
+
 def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=None, price_times=None):
     """Pure function. Returns {"results": [...], "pass": n, "block": n, "warnings": [...]}.
 
     now          naive UTC (default: the real clock); its New York date is "today"
     price_times  {SYM: naive UTC time of that price}; None = every price counts as fresh"""
+    if any(o.get("analysis_only") or o.get("instrument_type", "stock") != "stock" or (o.get("plan") or {}).get("instrument_type", "stock") != "stock" for o in orders):
+        return check_analysis(orders, cfg, portfolio, prices, state, today, now, price_times)
     c = dict(DEFAULTS)
     c.update(cfg or {})
     prices = {str(k).upper(): float(v) for k, v in (prices or {}).items() if _f(v)}
@@ -494,7 +660,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         if ref is None:
             cands = [(p, w) for p, w in ((plan_entry, "plan"), (live, "price")) if p]
             if cands:
-                ref, ref_from = max(cands, key=lambda x: x[0])
+                ref, ref_from = (min if side == "sell" else max)(cands, key=lambda x: x[0])
                 ref = _cent(ref)
                 if live and ref_from == "price" and plan_entry and live > plan_entry + CENT:
                     info.append("%s last %s is above the plan's entry %s: the risk is measured from %s"
@@ -726,6 +892,12 @@ def report(res):
                                                 r["kind"]))
         for x in r.get("info", []):
             lines.append("          " + x)
+        if r.get("analysis_only"):
+            lines.append("          loss at stop incl. costs: %s USD; margin: %s USD; maximum possible loss: %s" % (
+                r.get("loss_at_stop_usd"), r.get("margin_required_usd"),
+                r.get("maximum_possible_loss_usd") if r.get("maximum_possible_loss_usd") is not None else "no verified finite cap"))
+            lines.append("          " + r.get("loss_bound_note", "Incomplete risk data."))
+            lines.extend("          " + note for note in r.get("cost_notes", []))
         for x in r["reasons"]:
             lines.append("        - " + x)
         for x in r["warnings"]:
@@ -736,6 +908,8 @@ def report(res):
                     "paper" if res["paper"] else "LIVE"))
     if res["block"]:
         lines.append("Blocked orders do not go to the broker. Fix the order or your rules, then check again.")
+    elif res.get("analysis_only"):
+        lines.append("Paper analysis only. No persisted approval and no broker handoff.")
     else:
         lines.append("Every order passed. trader-broker still asks you yes or no for each one.")
     lines.append("Education and tooling, not financial advice.")
@@ -795,7 +969,7 @@ def main(argv=None):
         res = check(orders, cfg, portfolio, prices, state, a.today, now, times)
         if pdoc.get("as_of"):
             res["prices_as_of"] = pdoc["as_of"]
-        if not a.no_write:
+        if not a.no_write and not res.get("analysis_only"):
             d = os.path.dirname(a.out)
             if d:
                 os.makedirs(d, exist_ok=True)

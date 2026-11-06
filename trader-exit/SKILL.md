@@ -8,7 +8,8 @@ description: >-
   cent, and sets the target at 2R (or 1R, or your price). Refuses a stop at or
   above the entry, a target at or below it, or a stop too tight to survive the
   spread, and says why. Writes trader/plan.json for the Time Machine, the
-  Budget Manager and Price Alerts. Long side only. Use when the user says
+  Budget Manager and Price Alerts. Paper shorts mirror stop/target direction;
+  verified stock CFDs use their contract ticks and costs. Use when the user says
   "where's my stop", "set my stop and target", "plan the exit", "when do I get
   out", "stop loss", "what's my R", "risk reward", or right after
   /trader-entry triggers, before /trader-timemachine.
@@ -65,7 +66,8 @@ A level setup has no opening range to lean on, so it needs a stop you name.
 - **Refused, with the reason.** A stop at or above the entry. A target at or
   below it. A risk under 0.05% of the price: too tight to survive the
   spread, normal wiggle would stop you out. An entry.json that has not
-  triggered (unless you give `--entry`). A short: v2 plans longs only.
+  triggered (unless you give `--entry`). For a short, stop must be above
+  entry and target below it. Negative or zero targets are refused.
 - **Flat by.** 15:55 by default (or `flat_by` in the config). Out by then,
   win or lose, no overnight hold. On a 1:00 p.m. early close it moves up to
   12:55. An entry at or after the flat-by time is refused.
@@ -113,12 +115,34 @@ sizes it: a $50 max loss per trade buys floor(50 / 5.86) = 8 shares.
   never prints a P&L or a return.
 - Nothing here promises winning trades or money. A 1R target is not a
   prediction that the price gets there.
-- Long side only. v2 plans longs only.
+- Long is the default; short and CFD plans are analysis/paper only.
 
 ## What it never does
 
 It never places an order, never sizes a position, never widens a stop to
 make a plan pass, and never calls a stop a guarantee.
+
+## Short and CFD plans
+
+Use `--side sell` for a manual short, or inherit `side` from `--from`.
+For short: `risk = stop - entry`, `reward = entry - target`, stop rounds up
+away from entry, and an R target is `entry - R * risk`. `pct:X` and `atr:K`
+add to the entry; `or-high` is also available. Long rounding and defaults
+are preserved. Never transfer an old long stop to a short plan.
+
+`--spread X` is the full round-trip spread in quote-price units. It must be
+smaller than the stop distance. Entry, stop and target are mid prices; the
+shared valuation charges spread once, plus explicit cost allowances, adds
+them to loss and subtracts them from reward. R target rules describe gross
+price distance; the reported net reward:risk can therefore be below R.
+
+Use `--instrument FILE` for the CFD contract described in
+[trader-sentiment](../trader-sentiment/SKILL.md#cfd-contract), or inherit it
+from entry.json. Stops round away on `tick_size`. Contract size, margin,
+costs and identity are preserved. CFD ATR requires exact offline contract
+bars, never Yahoo prices for the underlying. Only USD stock CFDs on the
+NYSE calendar are supported. These plans go to budget/risk for paper
+analysis, with no Time Machine, alert-execution or broker handoff.
 
 ## Safety
 
