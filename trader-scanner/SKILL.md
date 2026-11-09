@@ -6,13 +6,15 @@ description: >-
   stocks, ordinary shares and ADRs from Nasdaq Trader's symbol directories,
   runs a pre-market scan of daily closes (20-day closing-high breakout, bull
   flag, reclaimed the 20-day average, oversold, oversold bounce) and an
-  intraday opening-range breakout scan on 5-minute bars, then writes
+  intraday opening-range breakout scan on 5-minute bars, plus Minervini's
+  Trend Template filter with an explicitly labelled RS_PROXY, then writes
   trader/watchlist.json for trader-news and trader-entry. Free Yahoo data,
   bar by bar. Use when the user says "scan the market", "find me setups",
   "what is breaking out", "opening range breakouts", "scan for bull flags",
   "oversold stocks", "pre-market scan", "build my watchlist", "what should I
-  look at today", or at the start of a trading day before /trader-news.
-argument-hint: "[universe | daily | orb] [--at HH:MM]"
+  look at today", "Minervini", "Trend Template", "Stage 2 candidates",
+  or at the start of a trading day before /trader-news.
+argument-hint: "[universe | daily | orb | minervini] [--at HH:MM]"
 ---
 
 # trader-scanner
@@ -33,6 +35,8 @@ python3 "${CLAUDE_SKILL_DIR}/scan.py" daily --symbols TSLA,NVDA,AMD  # or --watc
 python3 "${CLAUDE_SKILL_DIR}/scan.py" orb                            # after 9:50 AM ET -> trader/watchlist.json
 python3 "${CLAUDE_SKILL_DIR}/scan.py" orb --at 10:15                 # cut the clock at 10:15 AM ET
 python3 "${CLAUDE_SKILL_DIR}/scan.py" orb --watchlist trader/watchlist.json --json
+python3 "${CLAUDE_SKILL_DIR}/scan.py" minervini                    # full US universe -> trader/minervini.json
+python3 "${CLAUDE_SKILL_DIR}/scan.py" minervini --sort liquidity --show 20
 ```
 
 Flags: `--min-price 5` and `--min-volume` (daily 1,000,000, orb 0),
@@ -48,6 +52,7 @@ reason is one plain line).
 | --- | --- |
 | `trader/universe.txt` | written by `universe`: one `SYMBOL\|Name` a line, read by `daily` and `orb` |
 | `trader/watchlist.json` | written by `daily` and `orb`: `mode`, `as_of`, `universe`, `scanned`, `failed`, `hits[]`. trader-news and trader-entry read `hits[].symbol` |
+| `trader/minervini.json` | separate research report: all selected `results[]` with PASS/FAIL, PASS `hits[]`, all criteria, RS_PROXY methodology and population coverage; never an entry signal |
 | `trader/config.json` | read by `orb`: `no_entries_after` (default 15:30) |
 
 ## The universe
@@ -98,6 +103,123 @@ lows:
 A closing-high breakout fires more often than an intraday-high one (KO on
 Oct 16 broke its 20-day closing high, not its 20-day intraday high). Hits are
 listed most traded first (price times volume).
+
+## Minervini Trend Template (`/trader-scanner minervini`)
+
+This is an additional filter for momentum / Stage-2 research candidates.
+**PASS means all ten mandatory criteria match. It is never an automatic LONG
+signal or an instruction to buy.** No order, sizing or broker connection.
+
+First run `scan.py universe`, then `scan.py minervini`. The default downloads
+two years of Yahoo daily v8 OHLC for the entire supported US-listed universe
+defined above. It does not use the 3-month spark closes from `daily`.
+
+| # | mandatory criterion |
+| --- | --- |
+| 1 | last completed daily close > SMA150 |
+| 2 | close > SMA200 |
+| 3 | SMA150 > SMA200 |
+| 4 | SMA200 > its value 21 trading sessions earlier (`--trend-days 21`) |
+| 5 | SMA50 > SMA150 |
+| 6 | SMA50 > SMA200 |
+| 7 | close > SMA50 |
+| 8 | close >= 1.30 times the 52-week low |
+| 9 | close >= 0.75 times the 52-week high |
+| 10 | RS_PROXY >= 70, including exactly 70 |
+
+The monthly SMA200 check compares two endpoints; it does not assert that
+SMA200 rose every intervening day. SMA comparisons are strict. Annual price
+thresholds and the rank threshold are inclusive. Display rounding is never
+used to decide PASS.
+
+### Data and time
+
+- Price means the latest **completed daily close**, also during the session.
+  All SMA, annual extrema, returns and liquidity use only bars completed by
+  `--now`. Current quote metadata is never used as historical evidence.
+- Yahoo historical quote OHLC is split adjusted, without dividend adjustment.
+  `adjclose` (which also includes dividend adjustments) never silently replaces
+  OHLC. Split events are retained. Explicit RAW input can be normalized by its
+  supplied splits; already adjusted Yahoo OHLC is never adjusted twice.
+  Saved snapshots with later splits are rebased to the historical clock.
+- Require at least 260 valid daily bars (or `200 + trend_days`, if larger).
+  Missing OHLC, invalid values, unknown adjustment basis or insufficient
+  history produces `FAIL / INSUFFICIENT_DATA`. A missing latest completed
+  session produces `FAIL / STALE_DATA`; it is excluded from the rank population.
+- The 52-week high and low are the highest **high** and lowest **low** of the
+  last 252 completed sessions, an explicit trading-year approximation. The
+  12-month price return spans 252 completed trading intervals (253 closes).
+  Histories spanning more than 380 calendar days for those intervals fail as
+  sparse data. No live tick, incomplete daily bar or future date is included.
+- Yahoo is unofficial and can revise history and corporate actions. These
+  checks prevent future bars entering the calculation, but cannot reconstruct
+  a historical vendor vintage or an unprovided point-in-time listing universe.
+  The bundled exchange calendar covers holidays and early closes in 2026-27.
+
+### RS_PROXY, explicitly not the original RS rating
+
+The original criterion uses a proprietary cross-sectional RS rating. This tool
+has no original IBD / Minervini RS rating. It labels its alternative `RS_PROXY`
+everywhere: simple split-adjusted 12-month **price performance**, ranked across
+all eligible members of the scanable US universe. It is not total return, an
+RSI, an SPY comparison or a weighted blend of 3-, 6- and 12-month performance.
+
+Sort returns ascending and compute
+`100 * (average ordinal rank - 1) / (N - 1)`, with ordinal ranks starting at 1.
+Ties share their average rank. The endpoints are 0 and 100; equal returns for
+every member give 50. Fewer than two eligible stocks means unavailable RS_PROXY
+and FAIL. Keep full numerical precision for the >= 70 decision.
+
+`--symbols`, `--watchlist` and `--limit` select report rows **after** ranking;
+they never shrink the live reference population. A fresh live run therefore
+still downloads the full `--universe` or `trader/universe.txt` even when selecting
+one ticker. Optional price/volume floors filter displayed PASS hits after
+ranking, without changing the ten criteria or a stock's rank. Defaults impose
+no additional liquidity floor. Sort PASS candidates by RS_PROXY then mean
+20-session dollar volume (`--sort rs`, default), or dollar volume then RS_PROXY
+(`--sort liquidity`). The ticker breaks any remaining ties deterministically.
+
+The report lists requested, fetched, eligible and ranked counts separately.
+Unavailable, stale or short-history stocks are excluded from ranking and fail;
+reduced rank coverage is labelled PARTIAL. Their exclusion can change rankings.
+Listings, ADRs, funds and partnership units follow the existing universe rules;
+this is not IBD's population. IPO exclusion, missing/delisted securities,
+universe selection and provider revisions limit comparability. No proprietary
+rating, sector normalization or historical survivorship correction is implied.
+
+### Output and handoff
+
+Each `results[]` row contains ticker (`symbol`), `trend_template` PASS/FAIL,
+`price`, `sma50`, `sma150`, `sma200`, previous SMA200 and `sma200_trend_pct`,
+`above_52w_low_pct`, `below_52w_high_pct`, `RS_PROXY`, `fulfilled_criteria`,
+`failed_criteria`, every boolean/unknown criterion and a failure reason.
+Unavailable required values appear as `n/a` in text and null in JSON.
+Text prints PASS hits by default; `--all-results` includes FAIL. JSON always
+contains every selected row plus the PASS hits, and `--show N` only limits text.
+
+The separate default `trader/minervini.json` preserves `trader/watchlist.json`.
+`analysis_only: true`, `signal: null` and no `setups` tag keep the result a filter.
+Use its `hits[].symbol` to research a selected chart with `/trader-news`,
+`/trader-social`, `/trader-quiver`, `/trader-sentiment`, `/trader-entry` and
+`/trader-risk`. Those skills must obtain and assess their own evidence; a
+Minervini PASS does not confirm an entry, short or CFD contract.
+
+```bash
+python3 scan.py minervini --universe trader/universe.txt --show 10
+python3 scan.py minervini --symbols AAPL,MSFT --json --no-write
+python3 scan.py minervini --min-price 5 --min-volume 1000000 --sort liquidity
+python3 scan.py minervini --save-data /tmp/minervini-charts --out /tmp/minervini.json
+python3 scan.py minervini --offline /tmp/minervini-charts --universe trader/universe.txt \
+  --now "2026-11-09 09:00" --all-results --no-write
+```
+
+`--workers 4` bounds concurrent v8 requests (1..8); `--pause 0.3` pauses each
+worker between requests. Existing Yahoo host fallback and 429 retry apply.
+`--save-data DIR` writes fresh raw Yahoo responses for replay; live scans never
+silently read a cache. An offline scan without `--universe` ranks the entire
+snapshot and labels that population explicitly. Include the universe file to
+retain missing-symbol failures and exact coverage. Exit 0 if selected PASS hits
+remain, 1 if none or the scan cannot run, as in the other modes.
 
 ## The opening-range breakout scan (during the session)
 

@@ -69,14 +69,17 @@ Exit code 0 when the scan found something, 1 when it did not or could not run.
 """
 
 import argparse
+import concurrent.futures
 import datetime
 import gzip
 import importlib.util
 import json
+import math
 import os
 import re
 import sys
 import time
+import types
 import urllib.error
 import urllib.request
 
@@ -293,7 +296,9 @@ def series_from_result(res):
         v = q.get(k)
         return list(v) + [None] * (n - len(v)) if isinstance(v, list) else None
     return {"t": list(t), "c": col("close") or [None] * n, "o": col("open"), "h": col("high"),
-            "l": col("low"), "v": col("volume"), "meta": res.get("meta") or {}}
+            "l": col("low"), "v": col("volume"), "meta": res.get("meta") or {},
+            "price_basis": "YAHOO_SPLIT_ADJUSTED",
+            "splits": (res.get("events") or {}).get("splits") or {}}
 
 
 def parse_spark(text_or_doc, wanted=None):
@@ -947,6 +952,141 @@ def _n(x):
     return str(int(x)) if x == int(x) else "%.2f" % x
 
 
+def minervini_module():
+    path = os.path.join(os.path.dirname(__file__), "minervini.py")
+    spec = importlib.util.spec_from_file_location("scanner_minervini", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def fetch_minervini(symbols, a):
+    """Bounded Yahoo v8 requests, including real daily highs/lows and splits.
+
+    Pause per worker between requests. Optional raw snapshots allow an exact
+    offline replay. Nothing is read from a cache in a live scan.
+    """
+    def fetch(sym):
+        try:
+            text = yahoo_get(chart_path(sym, "2y", "1d") + "&events=splits&includeAdjustedClose=true")
+            series = parse_chart(text, sym)
+            if a.save_data:
+                if not TICKER.fullmatch(sym):
+                    raise ScanError("invalid snapshot ticker")
+                write_json(os.path.join(a.save_data, sym + ".json"), json.loads(text))
+            return sym, series, None
+        except (ScanError, ValueError) as exc:
+            return sym, None, str(exc)
+        finally:
+            if a.pause:
+                SLEEP(a.pause)
+    data, failed = {}, {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=a.workers) as pool:
+        for i, (sym, series, error) in enumerate(pool.map(fetch, symbols), 1):
+            if series is None:
+                failed[sym] = error
+            else:
+                data[sym] = series
+            if i % 250 == 0:
+                progress(a, "  daily OHLC %d of %d charts (%d unavailable)" % (i, len(symbols), len(failed)))
+    return data, failed
+
+
+def cmd_minervini(a):
+    if (not 1 <= a.workers <= 8 or not math.isfinite(a.pause) or a.pause < 0
+            or a.trend_days < 1 or a.show < 0):
+        raise ScanError("minervini requires --workers 1..8, --pause >= 0, --trend-days >= 1, --show >= 0")
+    if a.limit is not None and a.limit < 1:
+        raise ScanError("--limit must be positive")
+    if a.offline and a.save_data:
+        raise ScanError("--save-data is for live downloads only")
+    if not math.isfinite(a.min_price) or a.min_price < 0 or a.min_volume < 0:
+        raise ScanError("minervini price and volume floors must be finite and nonnegative")
+    t0, now = time.time(), parse_now(a.now)
+    mod = minervini_module()
+    # A small output selection must never redefine the RS population.
+    if a.offline:
+        data, failed = load_offline(a.offline)
+        universe = symbols_from_file(a.universe) if a.universe else sorted(set(data) | set(failed))
+        population_source = a.universe or "offline snapshot (not a historical point-in-time universe)"
+    else:
+        path = a.universe or DEFAULT_UNIVERSE
+        universe = symbols_from_file(path)
+        population_source = path
+        progress(a, "Fetching 2-year daily OHLC for %s universe symbols; RS_PROXY is ranked before selection..."
+                 % "{:,}".format(len(universe)))
+        data, failed = fetch_minervini(universe, a)
+    universe = list(dict.fromkeys(universe))
+    if not universe:
+        raise ScanError("no symbols in RS_PROXY universe; run `scan.py universe` first")
+    if a.symbols:
+        selected = set(s for s in re.split(r"[,\s]+", a.symbols.upper()) if s)
+    elif a.watchlist:
+        selected = set(symbols_from_file(a.watchlist))
+    else:
+        selected = set(universe)
+    if selected - set(universe):
+        raise ScanError("selected symbols are outside the RS_PROXY universe: " + ", ".join(sorted(selected - set(universe))))
+    if a.limit:
+        selected = set(s for s in universe if s in selected)
+        selected = set([s for s in universe if s in selected][:a.limit])
+    clock = types.SimpleNamespace(to_eastern=to_eastern, session=session, ts_to_eastern=ts_to_eastern)
+    rows, counts = mod.scan(data, universe, now, clock, a.trend_days, a.sort)
+    results = [r for r in rows if r["symbol"] in selected]
+    for row in results:
+        row["liquidity_pass"] = ((row.get("price") or 0) >= a.min_price and row.get("volume", 0) >= a.min_volume)
+        if row["symbol"] in failed:
+            row["data_error"] = failed[row["symbol"]]
+    hits = [r for r in results if r["trend_template"] == "PASS" and r["liquidity_pass"]]
+    partial = counts["ranked"] != len(universe)
+    doc = {"created_by": "trader-scanner", "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "mode": "minervini", "as_of": mod.last_session(now, clock).isoformat() + " close",
+           "source": "yahoo", "universe": len(universe), "scanned": counts["eligible"],
+           "failed": len(universe) - counts["fetched"], "partial": partial, "counts": counts,
+           "selected": len(results), "pass_count": len(hits), "analysis_only": True, "signal": None,
+           "rs_method": {"label": "RS_PROXY", "proprietary_rating": False,
+                         "performance": "252 completed trading intervals, split-adjusted close price return",
+                         "percentile": "100 * (average ordinal rank - 1) / (N - 1); ties share rank",
+                         "population_source": population_source, "population_requested": len(universe),
+                         "population_ranked": counts["ranked"], "partial": partial,
+                         "selection_applied_after_ranking": True},
+           "filters": {"trend_days": a.trend_days, "min_history": mod.MIN_HISTORY,
+                       "rs_min": 70, "min_price": a.min_price, "min_volume": a.min_volume,
+                       "sort": a.sort}, "note": mod.NOTE, "results": results, "hits": hits,
+           "seconds": round(time.time() - t0, 1)}
+    if a.offline:
+        doc["offline"] = os.path.basename(a.offline.rstrip("/"))
+    if not a.no_write:
+        write_json(a.out, doc)
+    if a.json:
+        print(json.dumps(doc, indent=2, allow_nan=False))
+    else:
+        print("Minervini Trend Template, %s (completed daily OHLC)." % doc["as_of"])
+        print("Fetched %d of %d charts; %d eligible; %d ranked; %d PASS in universe; %d selected PASS."
+              % (counts["fetched"], len(universe), counts["eligible"], counts["ranked"], counts["pass"], len(hits)))
+        if partial:
+            print("PARTIAL: RS_PROXY uses %d of %d symbols with sufficient current history; ranks may change with coverage."
+                  % (counts["ranked"], len(universe)))
+        print("Ticker | Trend Template | Price | SMA50 | SMA150 | SMA200 | 200d Trend | % above 52W low | "
+              "% below 52W high | RS_PROXY | fulfilled criteria | failed criteria")
+        def number(value):
+            return "%.2f" % value if value is not None else "n/a"
+        shown = results if a.all_results else hits
+        for row in shown[:a.show]:
+            values = [row["symbol"], row["trend_template"]] + [number(row.get(k)) for k in (
+                "price", "sma50", "sma150", "sma200", "sma200_trend_pct", "above_52w_low_pct",
+                "below_52w_high_pct", "RS_PROXY")]
+            values += [", ".join(row["fulfilled_criteria"]) or "none", ", ".join(row["failed_criteria"]) or "none"]
+            print(" | ".join(values) + ((" | " + row["reason"]) if row["reason"] else ""))
+        if len(shown) > a.show:
+            print("... %d more rows in the report (--show N)." % (len(shown) - a.show))
+        if not a.no_write:
+            print("Wrote %s; existing daily/orb watchlist preserved by default." % a.out)
+        print(mod.NOTE)
+        print("Next evidence: /trader-news, /trader-social, /trader-quiver, /trader-sentiment, /trader-entry, /trader-risk.")
+    return 0 if hits else 1
+
+
 def cmd_orb(a):
     t0 = time.time()
     now = parse_now(a.now)
@@ -1092,6 +1232,14 @@ def main(argv=None):
 
     p = sub.add_parser("daily", help="pre-market setups from daily closes")
     common(p, 5.0, 1000000)
+    p = sub.add_parser("minervini", help="Trend Template filter, RS_PROXY across the full US universe")
+    common(p, 0.0, 0)
+    p.set_defaults(out="trader/minervini.json")
+    p.add_argument("--trend-days", type=int, default=21, help="SMA200 comparison in trading sessions (21)")
+    p.add_argument("--sort", choices=["rs", "liquidity"], default="rs")
+    p.add_argument("--all-results", action="store_true", help="also print FAIL rows; JSON always includes all")
+    p.add_argument("--workers", type=int, default=4, help="bounded parallel chart downloads (1..8, default 4)")
+    p.add_argument("--save-data", metavar="DIR", help="save fresh live Yahoo charts for offline replay")
     p = sub.add_parser("orb", help="opening-range breakouts so far today")
     common(p, 5.0, 0)
     p.add_argument("--side", choices=["buy", "sell"], default="buy", help="sell: paper short breakdowns below range low")
@@ -1107,7 +1255,8 @@ def main(argv=None):
         ap.print_help()
         return 1
     try:
-        return {"universe": cmd_universe, "daily": cmd_daily, "orb": cmd_orb}[a.cmd](a)
+        return {"universe": cmd_universe, "daily": cmd_daily, "orb": cmd_orb,
+                "minervini": cmd_minervini}[a.cmd](a)
     except ScanError as e:
         print("scan.py: %s" % e, file=sys.stderr)
         return 1

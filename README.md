@@ -64,7 +64,7 @@ or in the `SEC_USER_AGENT` environment variable.
 
 | command | job | what it does |
 | --- | --- | --- |
-| `/trader-scanner` | Chart Scanner | Scans thousands of charts for setups: opening-range breakouts, flags, oversold bounces. |
+| `/trader-scanner` | Chart Scanner | Scans thousands of charts for setups; adds Minervini's Trend Template filter with explicitly labelled RS_PROXY. |
 | `/trader-news` | News Monitor | Tracks breaking news on every stock you watch and flags what moves it. |
 | `/trader-social` | Social Catalyst Monitor | Reviews Musk/Trump/company posts with source verification and per-ticker market/setup checks; X API only, Truth Social input only, paper analysis. |
 | `/trader-entry` | Entry Timer | Watches a setup bar by bar and tells you the moment to get in. |
@@ -135,6 +135,8 @@ polite about it.
 python3 trader-scanner/scan.py universe                                # ~5,900 US stocks, Nasdaq Trader
 python3 trader-scanner/scan.py daily                                   # pre-market setups, whole universe
 python3 trader-scanner/scan.py orb --at 10:15                          # opening-range breakouts so far
+python3 trader-scanner/scan.py minervini                              # Trend Template filter -> trader/minervini.json
+python3 trader-scanner/scan.py minervini --sort liquidity --show 10    # strongest PASS candidates, no entry signal
 python3 trader-news/news.py --tickers TSLA --hours 12                  # headlines, 8-Ks, today's move
 python3 trader-social/social.py analyze --posts trader/social-posts.json --evidence trader/social-evidence.json --json
 python3 trader-social/social.py x --account elonmusk                  # optional X_BEARER_TOKEN + api.x.com
@@ -165,7 +167,21 @@ biases with `KEIN TRADE`: the current entry/exit pipeline plans equity longs.
 python3 -m unittest discover -s tests -v
 ```
 
-The tests run offline. Social tests use explicitly synthetic scenarios and
+`/trader-scanner minervini` adds all ten Trend Template criteria, with at least
+260 completed daily OHLC bars and a 21-session SMA200 trend comparison. PASS
+is a momentum / Stage-2 research candidate, never an automatic LONG signal.
+The transparent `RS_PROXY` ranks 252-interval split-adjusted price performance
+across the full eligible US universe on a 0-100 percentile scale; it is **not**
+the proprietary IBD / Minervini RS rating. Report selections do not shrink the
+rank population. Missing/stale history fails, reduced coverage is PARTIAL,
+and `trader/minervini.json` preserves the daily/orb watchlist. See the
+[scanner skill](trader-scanner/SKILL.md) for the formula, all fields, split and
+time handling, live/offline commands, liquidity sorting and proxy limitations.
+Follow up with news, social, Quiver, sentiment, entry and risk evidence.
+
+The tests run offline. Minervini tests use synthetic OHLC, split events and
+mocked Yahoo responses, including threshold and existing-mode regressions.
+Social tests use explicitly synthetic scenarios and
 mocked API responses, never claims about actual posts. Other fixtures are cut
 from real data: TSLA's 5-minute bars for the 60 days to October 19 2026, the
 10:15 AM opening-range scan, Yahoo's
@@ -240,7 +256,7 @@ wash sales likely. Nothing here is tax advice.
 ## Files
 
 ```
-trader-scanner/     SKILL.md, scan.py
+trader-scanner/     SKILL.md, scan.py, minervini.py
 trader-news/        SKILL.md, news.py
 trader-social/      SKILL.md, social.py, x_api.py, watchlist.json
 trader-entry/       SKILL.md, entry.py
