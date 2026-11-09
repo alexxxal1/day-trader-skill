@@ -273,3 +273,12 @@ tests/              unittest suite + offline fixtures
 ```
 
 MIT. Made by [Jake Schincariol](https://opusjake.ai).
+
+## Qullamaggie research filters
+
+`/trader-scanner qullamaggie-breakout`, `qullamaggie-ep` and
+`qullamaggie-parabolic` add independent research reports for momentum bases,
+episodic pivots and parabolic short/long variants. They expose ranks, setup
+metrics, causal catalyst timestamps and completed-bar triggers without
+combining Minervini, placing orders or granting risk approval. See
+[the exact rules, examples and limits](trader-scanner/QULLAMAGGIE.md).
