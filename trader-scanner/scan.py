@@ -1198,6 +1198,154 @@ def cmd_orb(a):
     return 0 if hits else 1
 
 
+def qullamaggie_module():
+    path = os.path.join(os.path.dirname(__file__), "qullamaggie.py")
+    spec = importlib.util.spec_from_file_location("scanner_qullamaggie", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def fetch_qullamaggie(symbols, a, interval="1d"):
+    """Fresh bounded OHLC downloads, separate daily/intraday snapshots."""
+    def fetch(sym):
+        try:
+            raw = yahoo_get(chart_path(sym, "1y" if interval == "1d" else "1d", interval)
+                            + "&events=splits&includePrePost=true")
+            series = parse_chart(raw, sym)
+            if a.save_data:
+                if not TICKER.fullmatch(sym):
+                    raise ScanError("invalid snapshot ticker")
+                write_json(os.path.join(a.save_data, interval, sym + ".json"), json.loads(raw))
+            return sym, series, None
+        except (ScanError, ValueError) as exc:
+            return sym, None, str(exc)
+        finally:
+            if a.pause:
+                SLEEP(a.pause)
+    data, errors = {}, {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=a.workers) as pool:
+        for i, (sym, series, error) in enumerate(pool.map(fetch, symbols), 1):
+            if series is None:
+                errors[sym] = error
+            else:
+                data[sym] = series
+            if i % 250 == 0:
+                progress(a, "  Qullamaggie %s: %d/%d charts (%d unavailable)" % (interval, i, len(symbols), len(errors)))
+    return data, errors
+
+
+def cmd_qullamaggie(a):
+    if (not 1 <= a.workers <= 8 or not math.isfinite(a.pause) or a.pause < 0
+            or a.show < 0 or a.max_intraday < 0 or (a.limit is not None and a.limit < 1)
+            or not math.isfinite(a.min_price) or a.min_price < 0 or a.min_volume < 0):
+        raise ScanError("invalid Qullamaggie workers/pause/show/limit/liquidity flags")
+    if a.offline and a.save_data:
+        raise ScanError("--save-data is for live downloads only")
+    module = qullamaggie_module()
+    try:
+        if a.setup_config and not os.path.isfile(a.setup_config):
+            raise ValueError("setup config file does not exist: " + a.setup_config)
+        cfg = module.config(read_config(a.setup_config))
+        evidence = module.merge_evidence([json.loads(_read_maybe_gz(p)) for p in a.evidence])
+    except (OSError, ValueError, TypeError) as exc:
+        raise ScanError("Qullamaggie config/evidence: %s" % exc)
+    now = parse_now(a.now)
+    if to_eastern(now).year not in (2026, 2027):
+        raise ScanError("Qullamaggie requires a verified exchange calendar (2026-2027)")
+    if a.offline:
+        data, errors = load_offline(a.offline)
+        universe = symbols_from_file(a.universe) if a.universe else sorted(set(data) | set(errors))
+        population_source = a.universe or "offline snapshot; no historical listing-universe guarantee"
+    else:
+        path = a.universe or DEFAULT_UNIVERSE
+        universe = symbols_from_file(path)
+        population_source = path
+        data, errors = fetch_qullamaggie(universe, a)
+    universe = list(dict.fromkeys(universe))
+    if not universe:
+        raise ScanError("empty Qullamaggie reference universe; run `scan.py universe` first")
+    if any(not TICKER.fullmatch(s) for s in universe):
+        raise ScanError("Qullamaggie reference universe must contain supported stock tickers")
+    selected = set(re.split(r"[,\s]+", a.symbols.upper())) if a.symbols else set(symbols_from_file(a.watchlist)) if a.watchlist else set(universe)
+    selected.discard("")
+    if selected - set(universe):
+        raise ScanError("selected symbols outside Qullamaggie reference universe")
+    if a.limit:
+        selected = set([s for s in universe if s in selected][:a.limit])
+    # Ranking always precedes row selection. Intraday downloads are bounded,
+    # explicitly counted, and never silently replaced with daily candles.
+    intra, intra_errors = {}, {}
+    if a.intraday:
+        for interval in ("1m", "5m"):
+            path = os.path.join(a.intraday, interval)
+            if os.path.isdir(path):
+                saved, failed = load_offline(path)
+                for sym, series in saved.items():
+                    intra.setdefault(sym, {})[interval] = series
+                intra_errors.update(failed)
+        if not intra and not any(os.path.isdir(os.path.join(a.intraday, i)) for i in ("1m", "5m")):
+            saved, intra_errors = load_offline(a.intraday)
+            intra = saved
+    local = to_eastern(now)
+    hours = session(local.date())
+    active = hours and hours[0] <= local.time() < hours[1]
+    skipped = 0
+    if not a.offline and not a.intraday and active:
+        requested = [s for s in universe if s in selected]
+        if a.max_intraday:
+            skipped = max(0, len(requested) - a.max_intraday)
+            requested = requested[:a.max_intraday]
+        intra, intra_errors = fetch_qullamaggie(requested, a, "1m")
+    try:
+        # Supply the existing clock and OHLC normalization, no Minervini filter.
+        clock = types.SimpleNamespace(to_eastern=to_eastern, session=session, ts_to_eastern=ts_to_eastern,
+                                      eastern_to_utc=eastern_to_utc, minervini_module=minervini_module)
+        rows, counts = module.scan(data, universe, now, clock, a.cmd, intra, evidence, cfg,
+                                   read_config(a.risk_config), a.variant)
+    except (ValueError, TypeError) as exc:
+        raise ScanError("Qullamaggie: %s" % exc)
+    results = [r for r in rows if r["symbol"] in selected]
+    for row in results:
+        row["liquidity_pass"] = ((row["price"] or 0) >= a.min_price and (row["volume"] or 0) >= a.min_volume)
+        if row["symbol"] in errors:
+            row["data_error"] = errors[row["symbol"]]
+    hits = [r for r in results if r["setup_status"] in ("CANDIDATE", "SETUP_READY", "TRIGGERED") and r["liquidity_pass"]]
+    doc = {"created_by": "trader-scanner", "mode": a.cmd, "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "as_of": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "source": "offline snapshot" if a.offline else "Yahoo unofficial OHLC",
+           "analysis_only": True, "paper": True, "signal": None, "trade_allowed": False,
+           "universe": len(universe), "counts": counts, "selected": len(results), "candidate_count": len(hits),
+           "partial": counts["eligible"] != len(universe), "filters": cfg,
+           "rank_method": {"periods": {"1M": 21, "3M": 63, "6M": 126},
+                           "method": "split-adjusted close price returns; 0..100 average ordinal percentile, ties averaged",
+                           "population_source": population_source, "selection_after_ranking": True},
+           "intraday": {"fetched": len(intra), "failed": intra_errors, "skipped": skipped,
+                        "partial": bool(skipped or intra_errors), "active_session": bool(active)},
+           "independent_of_minervini": True, "results": results, "hits": hits,
+           "note": "Independent research proxies. LONG/SHORT labels describe structural direction, never risk approval or an order. No automatic trade; full entry/exit/budget/risk checks required."}
+    if not a.no_write:
+        write_json(a.out, doc)
+    if a.json:
+        print(json.dumps(doc, indent=2, allow_nan=False))
+    else:
+        print("%s | as of %s | %d/%d daily histories eligible | %d selected candidates" %
+              (a.cmd, doc["as_of"], counts["eligible"], len(universe), len(hits)))
+        if doc["partial"]:
+            print("PARTIAL rank coverage; missing/stale histories excluded; ranks can change.")
+        print("Ticker | Setup | Setup Status | Price | 1M Rank | 3M Rank | 6M Rank | ADR | ATR | Volume / RVOL | Catalyst | Trigger | Stop | Setup Quality | Direction | Reason")
+        def number(v):
+            return "%.2f" % v if v is not None else "n/a"
+        for r in (results if a.all_results else hits)[:a.show]:
+            print(" | ".join([r["symbol"], r["variant"], r["setup_status"], number(r["price"])]
+                  + [number(r["ranks"][p]) for p in ("1M", "3M", "6M")]
+                  + [number(r["adr"]), number(r["atr"]), number(r["volume"]) + " / " + number(r["rvol"]),
+                     ",".join(c["category"] for c in r["catalyst"]) or "unconfirmed",
+                     (r["trigger"] or {}).get("type", "none"), number((r["stop"] or {}).get("price")),
+                     str(r["setup_quality"]), r["action"], "; ".join(r["reasons"])]))
+        print(doc["note"])
+    return 0 if hits else 1
+
+
 def _p(x):
     return "{:,.2f}".format(x)
 
@@ -1240,6 +1388,19 @@ def main(argv=None):
     p.add_argument("--all-results", action="store_true", help="also print FAIL rows; JSON always includes all")
     p.add_argument("--workers", type=int, default=4, help="bounded parallel chart downloads (1..8, default 4)")
     p.add_argument("--save-data", metavar="DIR", help="save fresh live Yahoo charts for offline replay")
+    for mode in ("qullamaggie-breakout", "qullamaggie-ep", "qullamaggie-parabolic"):
+        p = sub.add_parser(mode, help="independent Qullamaggie research filter")
+        common(p, 0.0, 0)
+        p.set_defaults(out="trader/" + mode + ".json")
+        p.add_argument("--setup-config", help="JSON threshold overrides; see qullamaggie.example.json")
+        p.add_argument("--evidence", action="append", default=[], help="point-in-time evidence JSON; repeatable")
+        p.add_argument("--risk-config", default="trader/config.json", help="existing risk permissions; never overridden")
+        p.add_argument("--intraday", help="offline 1m/5m charts or parent folder containing 1m/ and 5m/")
+        p.add_argument("--variant", choices=["short", "long", "both"], default="both")
+        p.add_argument("--workers", type=int, default=4)
+        p.add_argument("--save-data", help="save fresh responses under DIR/1d and DIR/1m")
+        p.add_argument("--max-intraday", type=int, default=200, help="live session download cap (0: all); skipped count reported")
+        p.add_argument("--all-results", action="store_true")
     p = sub.add_parser("orb", help="opening-range breakouts so far today")
     common(p, 5.0, 0)
     p.add_argument("--side", choices=["buy", "sell"], default="buy", help="sell: paper short breakdowns below range low")
@@ -1256,7 +1417,8 @@ def main(argv=None):
         return 1
     try:
         return {"universe": cmd_universe, "daily": cmd_daily, "orb": cmd_orb,
-                "minervini": cmd_minervini}[a.cmd](a)
+                "minervini": cmd_minervini, "qullamaggie-breakout": cmd_qullamaggie,
+                "qullamaggie-ep": cmd_qullamaggie, "qullamaggie-parabolic": cmd_qullamaggie}[a.cmd](a)
     except ScanError as e:
         print("scan.py: %s" % e, file=sys.stderr)
         return 1

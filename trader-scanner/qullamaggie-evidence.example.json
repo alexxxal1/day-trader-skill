@@ -1,0 +1,30 @@
+{
+  "_note": "SYNTHETIC schema example; replace with independently checked sources and actual availability timestamps. This does not assert a real catalyst or market capitalization.",
+  "events": [
+    {
+      "symbol": "DEMO",
+      "source_skill": "trader-news",
+      "category": "earnings",
+      "published_at": "2026-11-06T13:00:00Z",
+      "available_at": "2026-11-06T13:01:00Z",
+      "confirmed": true,
+      "reference": "https://example.test/synthetic-earnings",
+      "summary": "Synthetic confirmed earnings repricing event",
+      "earnings": {
+        "eps_growth_pct": 35,
+        "revenue_growth_pct": 25,
+        "analyst_beat_pct": 10,
+        "guidance": "raised"
+      }
+    }
+  ],
+  "metadata": [
+    {
+      "symbol": "DEMO",
+      "published_at": "2026-11-06T13:00:00Z",
+      "available_at": "2026-11-06T13:01:00Z",
+      "market_cap": 12000000000,
+      "reference": "https://example.test/synthetic-cap"
+    }
+  ]
+}

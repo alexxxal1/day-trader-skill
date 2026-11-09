@@ -196,6 +196,14 @@ supported. Every verdict carries an `analysis:` fingerprint incompatible
 with trader-broker. The CLI prints it but saves no approval, even without
 `--no-write`. A paper PASS never authorizes a real order.
 
+## Scanner stop context
+
+`check.py` also exposes `scanner_stop_context` for read-only Qullamaggie
+research. It shares exposure validators, reports ATR/ADR distance and existing
+short/margin permissions, and always returns `approval: false`. This context
+does not replace the complete quantity, portfolio, costs, target, permission
+and daily-limit checks above and never writes a broker-compatible approval.
+
 ## Safety
 
 - Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.

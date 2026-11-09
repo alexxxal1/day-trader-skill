@@ -14,7 +14,7 @@ description: >-
   "oversold stocks", "pre-market scan", "build my watchlist", "what should I
   look at today", "Minervini", "Trend Template", "Stage 2 candidates",
   or at the start of a trading day before /trader-news.
-argument-hint: "[universe | daily | orb | minervini] [--at HH:MM]"
+argument-hint: "[universe | daily | orb | minervini | qullamaggie-breakout | qullamaggie-ep | qullamaggie-parabolic] [--at HH:MM]"
 ---
 
 # trader-scanner
@@ -220,6 +220,18 @@ silently read a cache. An offline scan without `--universe` ranks the entire
 snapshot and labels that population explicitly. Include the universe file to
 retain missing-symbol failures and exact coverage. Exit 0 if selected PASS hits
 remain, 1 if none or the scan cannot run, as in the other modes.
+
+## Independent Qullamaggie modes
+
+`qullamaggie-breakout`, `qullamaggie-ep` and `qullamaggie-parabolic` produce
+separate research reports, independently of Minervini. Read
+[QULLAMAGGIE.md](QULLAMAGGIE.md) for exact rules, point-in-time evidence,
+configuration, data requirements and replay commands. Breakout leaders expose
+1M/3M/6M cross-sectional percentile ranks; EP requires a confirmed catalyst
+and elevated volume; parabolic short and long remain separate variants.
+A setup alone never triggers a trade. Without current completed intraday
+bars, use CANDIDATE or SETUP_READY, never invent a trigger. Existing entry,
+exit, budget and risk checks remain mandatory. No orders or broker calls.
 
 ## The opening-range breakout scan (during the session)
 

@@ -382,6 +382,50 @@ def paper_exposure():
     return module
 
 
+def scanner_stop_context(entry, stop, side, atr=None, adr=None, warning_multiple=1.5, cfg=None, symbol=None):
+    """Read-only scanner stop geometry, never a risk approval or sizing.
+
+    Reuse exposure validators; the full portfolio/quantity/cost/daily checks
+    remain mandatory. Volatility preferences cannot relax hard account caps.
+    """
+    exposure = paper_exposure()
+    c = dict(DEFAULTS)
+    c.update(cfg or {})
+    result = {"verdict": "NOT_ASSESSED", "approval": False, "distance": None,
+              "atr_multiple": None, "adr_multiple": None, "preferred": None,
+              "warning": None, "blocks": [], "requires": ["trader-entry", "trader-exit",
+              "trader-budget", "trader-risk (full portfolio/quantity/costs/daily limits)"]}
+    try:
+        direction = exposure.side(side)
+        if direction == "sell" and (c.get("allow_short") is not True or c.get("allow_margin") is not True):
+            result["blocks"].append("short requires allow_short=true and allow_margin=true")
+        if c.get("paper", True) is not True:
+            result["blocks"].append("scanner research requires paper=true")
+        if symbol and symbol.upper() in {str(s).upper() for s in c.get("blocked", [])}:
+            result["blocks"].append("symbol on existing risk blocked list")
+        if entry is None or stop is None:
+            return result
+        e = exposure.decimal(entry, "entry", strict=True)
+        s = exposure.decimal(stop, "stop", strict=True)
+        distance = e - s if direction == "buy" else s - e
+        if distance <= 0:
+            raise exposure.ExposureError("stop must be below long entry or above short entry")
+        warning = exposure.decimal(warning_multiple, "warning_multiple", 1)
+        multiples = []
+        result["distance"] = float(distance)
+        for key, value in (("atr", atr), ("adr", adr)):
+            if value is not None:
+                multiple = distance / exposure.decimal(value, key, strict=True)
+                result[key + "_multiple"] = float(multiple)
+                multiples.append(multiple)
+        if multiples:
+            result["preferred"] = min(multiples) <= 1
+            result["warning"] = min(multiples) > warning
+    except exposure.ExposureError as exc:
+        result["blocks"].append(str(exc))
+    return result
+
+
 def check_analysis(orders, cfg, portfolio, prices, state, today, now, price_times):
     """Paper entry checks. Never persists a broker-compatible approval.
 
