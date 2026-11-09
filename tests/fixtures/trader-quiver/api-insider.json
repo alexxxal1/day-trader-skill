@@ -1,0 +1,15 @@
+[
+  {
+    "issuerTradingSymbol": "TEST",
+    "rptOwnerName": "Synthetic fixture",
+    "transactionCode": "P",
+    "transactionDate": "2026-11-04",
+    "fileDate": "2026-11-05T22:52:00-05:00"
+  },
+  {
+    "Ticker": "TEST",
+    "Name": "Synthetic missing disclosure date",
+    "Transaction": "S",
+    "Date": "2026-11-04"
+  }
+]

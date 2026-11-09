@@ -1,0 +1,21 @@
+{
+  "synthetic": true,
+  "note": "Illustrative user transcription, not an actual disclosure or screenshot. --dataset is mandatory.",
+  "records": [
+    {
+      "Ticker": "TEST",
+      "Politician": "Synthetic example",
+      "Transaction": "Purchase",
+      "Amount": "$1,001 - $15,000",
+      "TransactionDate": "2026-10-23",
+      "Filed": "2026-11-05"
+    },
+    {
+      "Ticker": "TEST",
+      "Transaction": "Sale",
+      "TransactionDate": "2026-11-06",
+      "Filed": "2026-11-05",
+      "note": "Deliberately inconsistent dates: normal disclosure delay must be null."
+    }
+  ]
+}

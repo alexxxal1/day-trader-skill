@@ -1,0 +1,16 @@
+[
+  {
+    "Ticker": "TEST",
+    "Representative": "Synthetic fixture",
+    "Transaction": "Purchase",
+    "Range": "$1,001 - $15,000",
+    "TransactionDate": "2026-10-01",
+    "ReportDate": "2026-11-05"
+  },
+  {
+    "Ticker": "TEST",
+    "Transaction": "Sale",
+    "TransactionDate": "2026-11-06",
+    "ReportDate": "2026-11-05"
+  }
+]

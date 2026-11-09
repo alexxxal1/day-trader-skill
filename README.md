@@ -1,11 +1,13 @@
 # The Day Trader skill
 
-13 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
+14 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
 
 Free, MIT. Core tools need no signup or API key. Optional live social data
 from X requires an official API token and API access. The tools are plain
 Python that read public data: Yahoo Finance charts, Nasdaq Trader's symbol
-lists, SEC EDGAR and the House Clerk, plus optional official X API data.
+lists, SEC EDGAR and the House Clerk, free public Quiver disclosures, plus
+optional official X and Quiver API data. Quiver API access requires an
+authorized key and may require a paid plan; its public-web route needs neither.
 
 One scans thousands of charts for setups. Another tracks breaking news on
 every stock you watch. One watches a setup bar by bar and tells you the moment
@@ -58,7 +60,7 @@ The tools need Python 3.8 or newer. Nothing to pip install. The SEC tools
 email in `trader/config.json` (`"sec_user_agent": "Your Name you@example.com"`)
 or in the `SEC_USER_AGENT` environment variable.
 
-## The thirteen
+## The fourteen
 
 | command | job | what it does |
 | --- | --- | --- |
@@ -74,6 +76,7 @@ or in the `SEC_USER_AGENT` environment variable.
 | `/trader-alerts` | Price Alerts | Rings when a price, a stop or the opening bell hits. |
 | `/trader-analyst` | Earnings Analyst | Reads earnings reports and sums up what changed. |
 | `/trader-pelosi` | Pelosi Tracker | Reads Congress's stock-trade disclosures the minute they are filed. |
+| `/trader-quiver` | Quiver Disclosure Reader | Reads Congress/Insider disclosures via free public pages, optional official API or user input; separates trade/filing dates and flags inconsistent delays. Research only. |
 | `/trader-sentiment` | Retail Sentiment Analyst | Reads Plus500 +Insights screenshots, compares positioning with price action and checks the existing skills. Paper analysis only; incomplete evidence means KEIN TRADE. |
 
 ## How to use it
@@ -146,6 +149,9 @@ python3 trader-alerts/alerts.py add --from-plan                        # stop, t
 python3 trader-alerts/alerts.py check                                  # rings what hit, once
 python3 trader-analyst/facts.py TSLA                                   # quarters, growth, EPS
 python3 trader-pelosi/ptr.py index --member pelosi                     # her PTRs this year
+python3 trader-quiver/quiver.py fetch --dataset congress --source public-web --json
+python3 trader-quiver/quiver.py fetch --dataset insider --source public-web --json
+python3 trader-quiver/quiver.py input --dataset congress --file trader-quiver/input.example.csv
 python3 trader-sentiment/sentiment.py trader-sentiment/screenshot.example.json --extract-only
 ```
 
@@ -173,6 +179,19 @@ watchlist, source policy and API requirements. The current native pipeline
 supports stock long/short and verified USD stock-CFD long/short in paper
 analysis. Social evidence must preserve the exact instrument, direction and
 contract identity; missing market or sentiment confirmation means KEIN TRADE.
+
+`trader-quiver` defaults to the free public Quiver webpages (`PUBLIC_WEB`).
+It also supports the explicitly selected official API (`QUIVER_API`, optional
+`QUIVER_API_KEY`) and local screenshots transcribed by the assistant, CSV,
+JSON or copied tables (`USER_INPUT`). It never requires MCP, follows a login,
+bypasses a paywall, crawls history or silently switches sources. Each public
+fetch reads one overview page. Trade date, disclosure date, publication age
+and disclosure delay remain separate; negative delays are `INCONSISTENT`
+with a null normal delay. A new filing need not describe a recent trade.
+No broker or orders are involved. See [the Quiver skill](trader-quiver/SKILL.md)
+for the source policy, date precision, examples, API command and limitations.
+Quiver tests use reduced public-page snapshots and synthetic API fixtures;
+the full suite runs offline without a key.
 
 ## Fine print
 
@@ -233,6 +252,7 @@ trader-broker/      SKILL.md, ticket.py, claude_desktop_config.example.json
 trader-alerts/      SKILL.md, alerts.py, alerts.example.json
 trader-analyst/     SKILL.md, facts.py, metrics.example.json
 trader-pelosi/      SKILL.md, ptr.py
+trader-quiver/      SKILL.md, quiver.py, sources.py, parsers.py, input.example.json, input.example.csv
 tests/              unittest suite + offline fixtures
 ```
 
