@@ -1,6 +1,6 @@
 # The Day Trader skill
 
-14 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
+15 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
 
 Free, MIT. Core tools need no signup or API key. Optional live social data
 from X requires an official API token and API access. The tools are plain
@@ -60,7 +60,7 @@ The tools need Python 3.8 or newer. Nothing to pip install. The SEC tools
 email in `trader/config.json` (`"sec_user_agent": "Your Name you@example.com"`)
 or in the `SEC_USER_AGENT` environment variable.
 
-## The fourteen
+## The fifteen
 
 | command | job | what it does |
 | --- | --- | --- |
@@ -78,6 +78,7 @@ or in the `SEC_USER_AGENT` environment variable.
 | `/trader-pelosi` | Pelosi Tracker | Reads Congress's stock-trade disclosures the minute they are filed. |
 | `/trader-quiver` | Quiver Disclosure Reader | Reads Congress/Insider disclosures via free public pages, optional official API or user input; separates trade/filing dates and flags inconsistent delays. Research only. |
 | `/trader-sentiment` | Retail Sentiment Analyst | Reads Plus500 +Insights screenshots, compares positioning with price action and checks the existing skills. Paper analysis only; incomplete evidence means KEIN TRADE. |
+| `/trader-confluence` | Confluence Layer | Compares Minervini and independent Qullamaggie setups with separate context/risk components, source deduplication and availability checks; analysis only. |
 
 ## How to use it
 
@@ -155,6 +156,7 @@ python3 trader-quiver/quiver.py fetch --dataset congress --source public-web --j
 python3 trader-quiver/quiver.py fetch --dataset insider --source public-web --json
 python3 trader-quiver/quiver.py input --dataset congress --file trader-quiver/input.example.csv
 python3 trader-sentiment/sentiment.py trader-sentiment/screenshot.example.json --extract-only
+python3 trader-confluence/confluence.py --minervini trader/minervini.json --qullamaggie trader/qullamaggie-breakout.json --json
 ```
 
 `trader-sentiment` uses the assistant's image reading to transcribe a screenshot;
@@ -282,3 +284,13 @@ episodic pivots and parabolic short/long variants. They expose ranks, setup
 metrics, causal catalyst timestamps and completed-bar triggers without
 combining Minervini, placing orders or granting risk approval. See
 [the exact rules, examples and limits](trader-scanner/QULLAMAGGIE.md).
+
+`/trader-confluence` reads these existing reports without changing their rules.
+It distinguishes filter/setup/trigger agreement, EP-only and Qullamaggie-only
+setups, conflicts and insufficient data. All variants remain visible per ticker;
+news, social, Quiver, sentiment and full risk verdicts remain separate components.
+Shared primary events count once, delayed disclosures stay context, and reports
+cannot supply data before its actual availability. Risk FAIL means NO_TRADE;
+confluence never grants order permission. See [the input contract and rule table](trader-confluence/SKILL.md)
+and the [synthetic example](trader-confluence/input.example.json). The helper is
+offline, standard-library Python and writes only an optional analysis report.
