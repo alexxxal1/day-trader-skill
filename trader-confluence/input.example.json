@@ -1,0 +1,43 @@
+{
+  "_note": "SYNTHETIC point-in-time example. No real catalyst, prices, approval or order.",
+  "decision_at": "2026-11-09T15:15:00Z",
+  "reports": [
+    {
+      "created_by": "trader-scanner",
+      "mode": "minervini",
+      "created_at": "2026-11-09T15:15:00Z",
+      "as_of": "2026-11-06 close",
+      "results": [{"symbol": "DEMO", "trend_template": "PASS", "close_date": "2026-11-06", "reason": null}]
+    },
+    {
+      "created_by": "trader-scanner",
+      "mode": "qullamaggie-breakout",
+      "created_at": "2026-11-09T15:15:00Z",
+      "as_of": "2026-11-09T15:15:00Z",
+      "results": [{
+        "symbol": "DEMO", "variant": "BREAKOUT", "setup_status": "TRIGGERED", "daily_as_of": "2026-11-06",
+        "trigger": {"type": "ORH_5m", "at": "2026-11-09T15:10:00Z", "price": 100, "level": 99, "current": true},
+        "stop": {"price": 97, "as_of": "2026-11-09T15:10:00Z"},
+        "risk": {"blocks": [], "warning": null, "preferred": true}, "liquidity_pass": true
+      }]
+    },
+    {
+      "created_by": "trader-risk", "checked_at": "2026-11-09T15:15:00Z",
+      "results": [{"symbol": "DEMO", "side": "buy", "kind": "entry", "entry_ref": 100, "stop": 97, "target": 106,
+                   "verdict": "PASS", "fingerprint": "SYNTHETIC-EXAMPLE-ONLY", "warnings": [], "reasons": []}]
+    }
+  ],
+  "events": [
+    {
+      "symbol": "DEMO", "source_skill": "trader-news", "published_at": "2026-11-09T15:00:00Z",
+      "available_at": "2026-11-09T15:01:00Z", "reference": "https://example.test/story",
+      "primary_source": "https://x.com/company/status/12345", "event_id": "synthetic-primary-post",
+      "confirmed": true, "direction": "LONG"
+    },
+    {
+      "symbol": "DEMO", "source_skill": "trader-social", "posted_at": "2026-11-09T15:00:00Z",
+      "available_at": "2026-11-09T15:01:00Z", "reference": "https://twitter.com/company/status/12345?utm_source=copy",
+      "event_id": "synthetic-primary-post", "confirmed": true, "direction": "LONG"
+    }
+  ]
+}
