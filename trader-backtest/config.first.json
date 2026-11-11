@@ -1,0 +1,27 @@
+{
+  "start": "2026-01-02",
+  "end": "2026-11-06",
+  "universe": ["AAPL", "AXP", "BAC", "DJT", "GOOGL", "KO", "NVDA", "TSLA"],
+  "seed": 20261109,
+  "randomizations": 1000,
+  "bootstrap_samples": 1000,
+  "low_sample_threshold": 30,
+  "initial_equity": 100000,
+  "max_positions": 5,
+  "max_portfolio_risk": 0.025,
+  "risk_per_trade": 0.005,
+  "sizing": ["equal_weight", "fixed_risk"],
+  "leverage": 1,
+  "target_r": 2,
+  "max_hold_sessions": 1,
+  "flat_by": "15:55",
+  "ranking": ["confluence_level", "RS_PROXY", "liquidity", "symbol"],
+  "is_fraction": 0.7,
+  "walk_forward": {"train_sessions": 80, "test_sessions": 40},
+  "costs": {
+    "spread_bps": 10,
+    "slippage_bps_per_side": 5,
+    "commission_per_unit_roundtrip": 0.01,
+    "stress_spread_multiplier": 2
+  }
+}
