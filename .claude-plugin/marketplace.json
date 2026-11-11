@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "day-trader-skill",
-      "description": "Fifteen Claude skills for day trading: a chart scanner, a news monitor, a social catalyst monitor (X API only, Truth Social input only), an entry timer, an exit planner, a time machine that replays 10,000 sessions, a risk manager, a budget manager, an order executor (paper by default, never without your yes), price alerts, an earnings analyst, a Pelosi tracker, a Plus500 screenshot sentiment analyst, a Quiver disclosure reader (public web, optional official API or user input; research only) and a transparent Minervini/Qullamaggie confluence layer (analysis only).",
+      "description": "Sixteen Claude skills for day trading: a chart scanner, a news monitor, a social catalyst monitor (X API only, Truth Social input only), an entry timer, an exit planner, a time machine that replays 10,000 sessions, a risk manager, a budget manager, an order executor (paper by default, never without your yes), price alerts, an earnings analyst, a Pelosi tracker, a Plus500 screenshot sentiment analyst, a Quiver disclosure reader (public web, optional official API or user input; research only) a transparent Minervini/Qullamaggie confluence layer (analysis only), and reproducible historical strategy backtests (offline analysis only).",
       "source": "./",
       "category": "productivity",
       "homepage": "https://github.com/Jakeschincariol/day-trader-skill"

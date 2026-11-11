@@ -1,0 +1,14 @@
+# Run data, reports, downloaded evidence, matrices, ledgers, checkpoints and
+# generated audit/test output stay local. No run-directory fixture exceptions.
+/runs/
+/repository-audit/
+
+# Python and test-tool caches/output.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/.coverage*
+/htmlcov/
+/coverage.xml
+*.log
+*.tmp

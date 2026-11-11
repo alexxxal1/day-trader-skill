@@ -1,0 +1,15 @@
+{
+  "origin_main": "8c5c04e4fa5a8cbbda22aee85ab0847a65065a11",
+  "sha256": {
+    "trader-budget/size.py": "bfa6cac9e7c73372fb42eb7b67318bb14077198a936696866026a8d195719fcb",
+    "trader-confluence/confluence.py": "0e8ce00d39a305cba978b45b60ae5f2fb13a3a950263c7a2d43d2f7acab50e55",
+    "trader-confluence/evidence.py": "b16a89ba18d1c9d4e89d0ca0d1accb2d99a748014a252dbf641051a6fa06130f",
+    "trader-entry/entry.py": "f95b86b3591b7b878fa47f21284cf8afd3d39facbec531fcea624e7fbb52cae0",
+    "trader-exit/exit.py": "d4acd2be72744779d057de4262c812f2937576cd3d8dd2e167750412ab87f73c",
+    "trader-risk/check.py": "f6f2f152b97b76b88ebe6cd2e92afc107993d2f57640281bc7cca1a796ed6b68",
+    "trader-risk/exposure.py": "51cfcc98247dfea539dd8c2ab68b7b95efd004ce70c8473da84c2e08fc37ca9f",
+    "trader-scanner/minervini.py": "73e09a8936a0c7b54d5938df6958c186fd10b8dd5a63cc9a65b728063307c53a",
+    "trader-scanner/qullamaggie.py": "ba78c93a458c71fdfef20ddef3a8a6722191826bfe7ea025a0aa37aad50f50d4",
+    "trader-scanner/scan.py": "c01d7ded654fdd78483b866431fbe87c6aa7d99557bb0efe87438668b448cebe"
+  }
+}

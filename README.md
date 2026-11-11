@@ -1,6 +1,6 @@
 # The Day Trader skill
 
-15 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
+16 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
 
 Free, MIT. Core tools need no signup or API key. Optional live social data
 from X requires an official API token and API access. The tools are plain
@@ -55,12 +55,54 @@ Project-local instead of global: copy the same folders into your repo's
 top of a chat and it runs as a mode. You lose the Python tools, but the method
 works.
 
-The tools need Python 3.8 or newer. Nothing to pip install. The SEC tools
+The core tools need Python 3.8 or newer. Nothing to pip install for those tools.
+The optional expanded daily-history accelerator uses NumPy and Pandas; its
+tested versions and offline commands are in `trader-backtest/DAILY.md`. The SEC tools
 (news filings, the analyst) ask you to identify yourself: put your name and
 email in `trader/config.json` (`"sec_user_agent": "Your Name you@example.com"`)
 or in the `SEC_USER_AGENT` environment variable.
 
-## The fifteen
+## Historical backtests
+
+`/trader-backtest` adds reproducible historical measurement of Minervini,
+Qullamaggie Breakout, Episodic Pivot, Parabolic Short/Long and Breakout
+Confluence. Existing strategy functions remain unchanged. It separates filter
+forward returns from executable trades, models costs and portfolio limits,
+and reports seeded random controls, SPY/QQQ, chronological IS/OOS and data gaps.
+
+[Method and offline commands](trader-backtest/SKILL.md) |
+[Daily-only reproduction](trader-backtest/DAILY.md) |
+[Event methodology and reproduction](trader-backtest/EVENTS.md) |
+[Repository contents](trader-backtest/REPOSITORY-AUDIT.md)
+
+Git contains the infrastructure, configuration, documentation and tests.
+Historical datasets, downloaded evidence, reports, matrices and generated audits
+are local run artifacts under the ignored `trader-backtest/runs/` directory.
+They are not supplied by a clone. Identical offline reproduction requires the
+original local snapshot; fresh acquisition creates a different vendor snapshot.
+
+The event layer separates daily observations from confirmed state transitions,
+tests full-reset and 20-session-cooldown definitions, audits source quality
+uniformly, and reports ALL/VALID, overlapping/nonoverlapping windows and event
+IS/OOS. Matched 1,000-replicate controls and full return distributions remain
+descriptive; clean-check labels do not establish complete corporate-action
+history, independent samples or a profitable strategy.
+
+The expanded daily study requests the full current scanner universe of 5,933
+US-listed stocks and ADRs. Of these, 5,475 have a complete common daily-history
+window on at least one date. It compares unchanged native rules over 1993-2026,
+with no intraday prerequisite and 1,000 seeded daily signal controls. Current
+listing survivorship, revisable data and unresolved extreme price movements
+keep strategy-performance conclusions exploratory. The original pilot's local
+artifacts are retained separately.
+
+The first snapshot has eight predeclared stocks, daily history from July 2024,
+and 60 sessions of intraday data. It is exploratory: survivorship bias and
+revised vendor data are explicitly flagged. Missing catalysts, short-borrow
+data and CFD financing are never inferred. This is a measurement tool, not
+proof of profitability. No broker calls, orders, commits or pushes occur.
+
+## The sixteen
 
 | command | job | what it does |
 | --- | --- | --- |
@@ -69,6 +111,7 @@ or in the `SEC_USER_AGENT` environment variable.
 | `/trader-social` | Social Catalyst Monitor | Reviews Musk/Trump/company posts with source verification and per-ticker market/setup checks; X API only, Truth Social input only, paper analysis. |
 | `/trader-entry` | Entry Timer | Watches a setup bar by bar and tells you the moment to get in. |
 | `/trader-exit` | Exit Planner | Sets your stop and your target before you enter, so you know when to get out. |
+| `/trader-backtest` | Historical Backtests | Replays unchanged strategies with availability clocks, costs, sizing, random controls and explicit sample/data limitations. |
 | `/trader-timemachine` | Time Machine | Replays every possible outcome of a trade before you risk a dollar: 10,000 simulated sessions plus every past time the setup fired. |
 | `/trader-risk` | Risk Manager | Checks every trade against your limits and stops anything over them. |
 | `/trader-budget` | Budget Manager | Sizes every position to your budget and your max loss per trade. |

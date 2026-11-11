@@ -1,0 +1,58 @@
+{
+  "version": "event-quality-v1",
+  "seed": 20261109,
+  "randomizations": 1000,
+  "bootstrap_samples": 1000,
+  "horizons": [1, 3, 5, 10, 20, 60],
+  "primary_horizon": 20,
+  "feature_window_sessions": 260,
+  "is_fraction": 0.7,
+  "events": {
+    "strategies": ["MINERVINI", "BREAKOUT_SETUP_READY", "CONFLUENCE_SETUP_READY"],
+    "full_reset": {
+      "minervini": "Confirmed eligible FAIL arms the next confirmed transition into PASS",
+      "breakout": "Confirmed eligible FAILED (neither CANDIDATE nor READY) arms the next transition into SETUP_READY; CANDIDATE alone does not rearm",
+      "confluence": "Confirmed eligible Minervini FAIL or Breakout FAILED rearms; PASS plus CANDIDATE alone does not rearm"
+    },
+    "cooldown20": "Confirmed inactive-to-active transition only; at least 20 exchange sessions since the last accepted event for this ticker and strategy; suppressed transitions are never emitted later while continuously active",
+    "unknown_data": "Missing eligibility is UNKNOWN, not FAIL/reset; activation after an unknown previous state is left-censored and excluded until a confirmed reset/transition",
+    "warmup": "Native pre-study states reconstructed with saved historical ranks; state and cooldown continue across IS/OOS boundaries",
+    "nonoverlap_sensitivity": "Greedy chronological first-event retention per ticker/strategy/horizon, before quality filtering; next start must be at least horizon sessions after the previous retained start"
+  },
+  "quality": {
+    "labels": ["VALID", "SUSPECT", "INVALID"],
+    "numeric_invalid": "Missing/nonfinite/nonpositive OHLC, inconsistent OHLC bounds, negative/nonfinite volume, missing sessions, wrong instrument/currency; no undefined return imputation",
+    "daily_gross_jump_factor": 2.0,
+    "daily_jump_label": "SUSPECT for gross close ratio >=2 or <=0.5; magnitude alone never proves INVALID",
+    "split_match_ratio_tolerance": 1.25,
+    "split_unreconciled": "SUSPECT when a declared material split and quote discontinuity resemble an unadjusted mechanical split; INVALID only if an independently different adjclose path confirms mixed quote units",
+    "adjustment_ratio_discontinuity_factor": 1.25,
+    "adjustment_rule": "SUSPECT for large quote/adjclose adjustment-ratio discontinuity without a declared dividend/corporate action",
+    "zero_volume_price_change": "SUSPECT when zero reported volume accompanies a changed close",
+    "stale_zero_volume_sessions": 20,
+    "pre_first_trade_grace_sessions": 1,
+    "identity_rule": "Pre-declared-inception history or a provider market mismatch is SUSPECT; missing historical security/merger identity archive is a global limitation, not proof all otherwise clean rows are invalid",
+    "quality_window": "Maximum severity across the original 260-session feature window and every subsequent bar through the forward endpoint; computed after fixed event extraction",
+    "all_panel": "All arithmetically computable positive-price outcomes, including finite SUSPECT/INVALID basis observations; missing/undefined outcomes remain counted",
+    "valid_panel": "Only outcomes whose entire quality window is VALID; a retrospective data-quality sensitivity, never a live entry rule",
+    "extreme_forward_review_factor": 10.0,
+    "extreme_forward_rule": "Gross horizon ratio >=10 or <=0.1 is audited; horizon magnitude alone does not change quality or delete the observation",
+    "no_manual_exclusions": true,
+    "no_price_repair": true
+  },
+  "random": {
+    "primary": "Same fixed event dates and selected counts; contemporaneous original eligible universe; apply identical retrospective quality masks only when evaluating outcomes; observed VALID counts may differ and are disclosed",
+    "spacing": "FULL_RESET control minimum 2 sessions; COOLDOWN20 minimum 20 sessions per sampled ticker/strategy/replicate; no duplicate ticker within a date",
+    "valid_matched_secondary": "Additional descriptive VALID-only control matches retained VALID event counts per date/horizon and the same quality-qualified retrospective universe; explicitly future-quality-conditioned and not a deployable strategy",
+    "statistic": "Distribution of per-replicate mean forward returns; strategy median is also shown; half-tie empirical percentile for strategy mean",
+    "infeasible": "Do not relax spacing, quality, universe or counts; disclose infeasible replicates"
+  },
+  "distribution": {
+    "percentiles": [10, 25, 50, 75, 90, 95, 99],
+    "thresholds_pct": [5, 10, -5, -10],
+    "tail_fraction": 0.01,
+    "tail_analysis": "Report top 1 percent contribution to the unmodified mean and share of gross positive returns; no removal or optimization"
+  },
+  "strategy_parameters_changed": false,
+  "daily_intraday_separated": true
+}

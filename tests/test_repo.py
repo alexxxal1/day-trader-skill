@@ -8,8 +8,8 @@ from _load import ROOT
 # v2 day-trading pack, plus sentiment, social catalysts, Quiver and confluence research
 SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trader-timemachine",
           "trader-risk", "trader-budget", "trader-broker", "trader-alerts", "trader-analyst",
-          "trader-pelosi", "trader-sentiment", "trader-social", "trader-quiver", "trader-confluence"]
-ABOUT = ("15 Claude skills for day trading: scan thousands of charts, track breaking news, time every "
+          "trader-pelosi", "trader-sentiment", "trader-social", "trader-quiver", "trader-confluence", "trader-backtest"]
+ABOUT = ("16 Claude skills for day trading: scan thousands of charts, track breaking news, time every "
          "entry and exit, and replay every outcome before you risk a dollar.")
 # skills on the way to an order carry the safety block
 ORDER_PATH = ["trader-scanner", "trader-entry", "trader-exit", "trader-timemachine", "trader-budget",
