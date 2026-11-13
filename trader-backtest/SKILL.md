@@ -5,6 +5,16 @@ description: Reproduce historical Minervini, Qullamaggie Breakout, Episodic Pivo
 
 # Historical strategy measurement
 
+For actual historical TRIGGERED reconstructions, first follow
+[TRUE-TRADES.md](TRUE-TRADES.md): bounded source audit, frozen acquisition,
+native trigger prefixes, observed next-bar opens and trigger-time stops.
+This distinct workflow uses PIT_SAFE/REALISTIC/conservative as primary and
+requires at least 100 complete True Trades per strategy for strategy Monte
+Carlo; lower samples are technical portfolio checks only. Do not substitute
+the older event-return or pilot-bootstrap thresholds for that gate. No daily
+fallback, catalyst backdating or new trailing rules. The first frozen
+eight-stock result is in [TRUE-TRADES-FIRST-RUN.md](TRUE-TRADES-FIRST-RUN.md).
+
 For event portfolios and empirical Monte Carlo, follow [PORTFOLIO.md](PORTFOLIO.md).
 For full-universe Daily rehydration and equal-weight EVENT_RETURN_PORTFOLIO
 measurement, use [EVENT-PORTFOLIO.md](EVENT-PORTFOLIO.md). Daily forward returns
@@ -84,7 +94,9 @@ python3 trader-backtest/collect.py \
   --output /tmp/new-historical-snapshot
 ```
 
-Only the explicit collectors `collect.py` and `daily_collect.py` use the network.
+Only explicit acquisition commands use the network: `collect.py`,
+`daily_collect.py`, and the True Trade `intraday_audit.py` /
+`true_trade_collect.py`. Offline replay never requests data.
 Raw provider responses and their hashes are
 retained. Existing cached responses are reused; replay never refreshes them.
 Yahoo is unofficial, revisable, and offers only limited intraday history.
