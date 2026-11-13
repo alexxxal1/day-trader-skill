@@ -73,13 +73,36 @@ and reports seeded random controls, SPY/QQQ, chronological IS/OOS and data gaps.
 [Method and offline commands](trader-backtest/SKILL.md) |
 [Daily-only reproduction](trader-backtest/DAILY.md) |
 [Event methodology and reproduction](trader-backtest/EVENTS.md) |
+[Portfolio and empirical Monte Carlo](trader-backtest/PORTFOLIO.md) |
+[Rehydrated event-return portfolios](trader-backtest/EVENT-PORTFOLIO.md) |
 [Repository contents](trader-backtest/REPOSITORY-AUDIT.md)
+
+The portfolio extension applies the unchanged native triggers and risk guards
+to deduplicated reset/cooldown events, with EUR cash accounting, historical FX,
+fixed risk sizing and reproducible trade/session-block bootstraps. Missing
+historical entries or stops remain unavailable; gross event forward returns
+stay separate from executable portfolios. See the portfolio guide for the
+EUR 10,000 baseline, alternative capital/risk/cost scenarios and data limits.
 
 Git contains the infrastructure, configuration, documentation and tests.
 Historical datasets, downloaded evidence, reports, matrices and generated audits
 are local run artifacts under the ignored `trader-backtest/runs/` directory.
 They are not supplied by a clone. Identical offline reproduction requires the
 original local snapshot; fresh acquisition creates a different vendor snapshot.
+
+The equal-weight [event portfolio](trader-backtest/EVENT-PORTFOLIO.md) uses
+USD 10,000, five/ten slots and observed next-session opens after daily signals.
+Its execution audit checks cash, ticker overlap, exact holding horizons, tail
+dependence and matched SPY/QQQ benchmarks. Earlier same-close portfolio results
+are superseded. These event-return indices remain distinct from stop-based
+true trades; retrospective quality selection and incomplete identities still
+limit performance conclusions.
+PIT_SAFE is the primary quality methodology for future event reports: it uses
+only trailing OHLCV diagnostics through signal close. ALL and the previous
+full-outcome VALID are sensitivities. Because archived contemporaneous quote
+vintages are unavailable, PIT_SAFE results retain an explicit snapshot and
+non-PIT-data qualification. The quality-only audit separates rule exclusions,
+ALL-book P&L attribution and changes caused by rerunning the portfolio.
 
 The event layer separates daily observations from confirmed state transitions,
 tests full-reset and 20-session-cooldown definitions, audits source quality

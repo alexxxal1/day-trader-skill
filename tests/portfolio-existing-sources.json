@@ -1,0 +1,31 @@
+{
+  "origin_main": "e1edb15413cee230c33f26161b17fecda44aac54",
+  "sha256": {
+    "trader-backtest/adapters.py": "13582f268f482c7d96bfb75ef030a37d5d59efd28ecadbff32f2fe154c8c39c3",
+    "trader-backtest/baseline.py": "c5ff0065755280a0c5ee697e40956c851ee5d2cceee74dd0da2f9edad2634603",
+    "trader-backtest/collect.py": "761f7318842f7d11ef8deff92b91c675f687d60b367f7e776ce7758388edf0e5",
+    "trader-backtest/common.py": "28c6d00fc94d72960922b093f922cdcf2fa77c9b11f0b37732af8c6cde4bc93e",
+    "trader-backtest/config.first.json": "2607485d8c319e6f2ad64f33e8ff723e1fa87bb344c9ea41a4528969146debd7",
+    "trader-backtest/daily_collect.py": "ea08b228bedddb9fa35a235aa171bbeab6796f4fd1753b7613d7e79f6bd1023b",
+    "trader-backtest/daily_history.py": "7c9ef0d5f7554d847a10d23238785d5df0d3604016a4f3834a223b577f51d8b3",
+    "trader-backtest/daily_report.py": "0f010ad48f295938e06bb4e3072702f2c37816aaf2ce17586bbeba80ac6b723d",
+    "trader-backtest/daily_results.py": "14e21719f89ff796c9d5dda8b3c7ef01c0318eb1f7c46e2efbc76a80f202327e",
+    "trader-backtest/daily_verify.py": "1f059c93098078fd1c5d232c18c64e0a0586e03b47025f484b71b5b310dda67f",
+    "trader-backtest/data.py": "369cb378c3a3bf0867c0bf6b888029936810f99a2e0e73c5e863dbecd34af98b",
+    "trader-backtest/data_quality.py": "940eadf9ee05fb50755766333e6a69f8bac3f0a942cbc535624b7ebe3e2c245f",
+    "trader-backtest/diagnose.py": "1c85dafdee9704a9136d54cb8ccb65ea54a811d299106b429e17a44c6c554d9b",
+    "trader-backtest/engine.py": "d0768518266d1981fe03e1413246acdaeb5a6f690f7e97d8438cf1e7e83b635c",
+    "trader-backtest/event-methodology.json": "74f7dc9933eba63d5d9961cc7496932affedc3dd24e6dabc98d2e3cb7d07065b",
+    "trader-backtest/event_audit.py": "81483336139c24c6874a5cb4a2bd18ba8537f4e9f6cfa15476085c80b9124517",
+    "trader-backtest/event_random.py": "d9f7994f80aa86bb5386517aa4a7926909f1d1eb7bdacd960708543f3ae18fd8",
+    "trader-backtest/event_random_grouped.py": "f6aa5f45e06d65111e6849f551e7b544477339e0d5d0247fc5607b6181d2c1ec",
+    "trader-backtest/event_report.py": "cac676f34f3134a748c6eb85a588181992a3a7f9a782b795499385cc31f9417b",
+    "trader-backtest/event_signals.py": "1ca8af13c8cb2511001b945100de3fd974d5b9da762d749982231f6db7c45178",
+    "trader-backtest/event_statistics.py": "3a9d5bf7edcecb3713ea753b55c47050cc10498bcd26d3602e04c73a765c468f",
+    "trader-backtest/metrics.py": "cd94dfd8613798396bb697e06b5cfe01f1cba678e5db137f0c7e1b82d8d4c751",
+    "trader-backtest/reporting.py": "05c156ff8b2e657040c370d012692cfec389b9ca5a233ab8d4715a90deabe4df",
+    "trader-backtest/run.py": "5af89e1540a75507b092c9499d6b3ce17ba5dc94ec8c8cd5d9c83baa13107fb9",
+    "trader-backtest/splits.py": "59a35c31b2c7fcb0241149a450d299cceeabaa25cca3044e1c06c2366aa8e902",
+    "trader-backtest/strategy-sources.json": "f4f57944a2d00cee97abc8e0ec30cd0186d6bc3819c31d680b8817060f717e2a"
+  }
+}

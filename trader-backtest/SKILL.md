@@ -5,6 +5,30 @@ description: Reproduce historical Minervini, Qullamaggie Breakout, Episodic Pivo
 
 # Historical strategy measurement
 
+For event portfolios and empirical Monte Carlo, follow [PORTFOLIO.md](PORTFOLIO.md).
+For full-universe Daily rehydration and equal-weight EVENT_RETURN_PORTFOLIO
+measurement, use [EVENT-PORTFOLIO.md](EVENT-PORTFOLIO.md). Daily forward returns
+cannot enter stop-based TRUE_TRADE_PORTFOLIO results. Fewer than 30 actual
+trades is VERY_LOW_SAMPLE and no strategy Monte Carlo; old five-trade pilot
+resamples are technical function tests only.
+The event portfolio queues a completed Close-T signal for observed Open-T+1
+execution and exits at Close-T+h, counting the entry session as session one.
+Only existing cash funds entries; scheduled close proceeds are available at the
+following open. Same-close event portfolio results are superseded. Run the
+execution audit described in EVENT-PORTFOLIO.md for cash/exposure invariants,
+nonoverlapping tickers, tail sensitivity and matched benchmark periods.
+Use PIT_SAFE as the primary event quality methodology; ALL and legacy full-outcome
+VALID are sensitivities. PIT_SAFE decisions use only the existing OHLCV checks
+through signal close T, excluding later corporate-action/identity/SEC/vendor
+metadata from admission. Keep SNAPSHOT_RECONSTRUCTION_NOT_POINT_IN_TIME_CERTIFIED
+when archived original data vintages are absent. Never relabel old VALID
+bootstrap outputs as PIT_SAFE. The quality-only audit and full bootstrap are
+separate commands and scopes.
+Use the existing source/event definitions unchanged; never fabricate a stop or
+trade for a daily filter. Keep unavailable trade portfolios distinct from the
+separate forward-event bootstrap. The generic challenge helper is prepared but
+is not part of the main analysis.
+
 Use this skill for historical comparisons, not parameter optimization.
 Never claim that a backtest proves profitability. This is not financial advice.
 The engine has no broker integration and creates no execution payloads.
