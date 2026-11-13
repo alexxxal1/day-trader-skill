@@ -75,7 +75,18 @@ and reports seeded random controls, SPY/QQQ, chronological IS/OOS and data gaps.
 [Event methodology and reproduction](trader-backtest/EVENTS.md) |
 [Portfolio and empirical Monte Carlo](trader-backtest/PORTFOLIO.md) |
 [Rehydrated event-return portfolios](trader-backtest/EVENT-PORTFOLIO.md) |
+[Actual intraday True Trades](trader-backtest/TRUE-TRADES.md) |
 [Repository contents](trader-backtest/REPOSITORY-AUDIT.md)
+
+The separate True Trade workflow first audits permitted intraday sources, then
+reconstructs native triggers from completed bar prefixes and enters at the next
+observed open. It preserves trigger-time stops, causal catalyst availability,
+conservative ambiguous exits and explicit cost assumptions. Its first frozen
+eight-stock pilot over 2026-08-20 to 2026-11-12 finds 14 Breakout SETUP_READY
+observations and zero confirmed True Trades; it makes no inference about
+1993-2026. All five strategy samples are VERY_LOW_SAMPLE. Strategy Monte Carlo
+requires at least 100 complete True Trades in this workflow. See the
+[coverage audit and first-run findings](trader-backtest/TRUE-TRADES-FIRST-RUN.md).
 
 The portfolio extension applies the unchanged native triggers and risk guards
 to deduplicated reset/cooldown events, with EUR cash accounting, historical FX,

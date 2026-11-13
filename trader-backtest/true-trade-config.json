@@ -1,0 +1,31 @@
+{
+  "version": "true-trades-v1",
+  "universe_source": "config.first.json: unchanged predeclared eight-stock pilot; not the full historical universe",
+  "universe": ["AAPL", "AXP", "BAC", "DJT", "GOOGL", "KO", "NVDA", "TSLA"],
+  "primary_quality": "PIT_SAFE",
+  "primary_costs": "REALISTIC",
+  "primary_intrabar_order": "conservative",
+  "target_r": 2,
+  "flat_by": "15:55",
+  "max_hold_sessions": 1,
+  "costs": {
+    "spread_bps": 10,
+    "slippage_bps_per_side": 5,
+    "commission_per_unit_roundtrip": 0.01,
+    "stress_spread_multiplier": 2
+  },
+  "cost_provenance": "Unchanged config.first.json assumptions, not observed historical costs. Unknown borrow/locates remain unknown.",
+  "initial_equity": 100000,
+  "risk_per_trade": [0.0025, 0.005, 0.01],
+  "max_positions": 5,
+  "max_portfolio_risk": 0.03,
+  "leverage": 1,
+  "minimum_monte_carlo_trades": 100,
+  "paths": 10000,
+  "block_sessions": 5,
+  "seed": 20261113,
+  "event_unit": "At most first native confirmed trigger per ticker/strategy/session, from previous completed daily SETUP_READY; EP from current gap/volume/catalyst candidate. Daily states are not deduplicated FULL_RESET/COOLDOWN events.",
+  "frame_selection": "1m when on-time opening bar exists, otherwise 5m for that session. No stitching or synthetic bars.",
+  "daily_breakout": "Context only; native current_entry=false, no daily-only True Trade",
+  "trailing_exit": "Unavailable: native automatic_exit=false. No new trailing strategy introduced."
+}
