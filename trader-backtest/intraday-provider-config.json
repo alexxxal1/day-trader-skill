@@ -1,0 +1,8 @@
+{
+  "priority": ["ALPACA", "YAHOO", "MASSIVE"],
+  "alpaca_feed": "iex",
+  "adjustments": {"ALPACA": "raw", "YAHOO": "split", "MASSIVE": "raw"},
+  "requests_per_minute": {"ALPACA": 180, "YAHOO": 120, "MASSIVE": 5},
+  "cache": "trader-backtest/intraday-cache",
+  "mixed_provider_primary": false
+}

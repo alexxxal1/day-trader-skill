@@ -6,6 +6,7 @@ import numpy as np
 from common import EPOCH, iso, module, stamp
 from event_quality_pit import CAUSAL_BITS, causal_bar_flags
 from true_trade_execution import contiguous_prefix, native_bars, opening, session_rows
+from intraday_providers.provenance import BASIS_FIELDS, source_identity
 
 QULL = module("trader-scanner", "qullamaggie")
 MINI = module("trader-scanner", "minervini")
@@ -62,12 +63,13 @@ def replay(market, config, start, end):
                 before[row["symbol"], row["variant"]] = row
         for symbol in market.universe:
             frame, rows = session_rows(market, symbol, day)
+            source = source_identity(rows)
             prefix = contiguous_prefix(rows, op)
             bars = native_bars(prefix, market.clock)
             coverage.append({"ticker": symbol, "session": day, "frame": frame, "regular_bars": len(rows),
                 "contiguous_opening_bars": len(prefix), "last_contiguous_end": iso(prefix[-1]["_end"]) if prefix else None,
                 "complete_session": bool(prefix and prefix[-1]["_end"] == market.clock.close(day)),
-                "one_minute_or_resolvable": frame == "1m" and bool(prefix)})
+                "one_minute_or_resolvable": frame == "1m" and bool(prefix), "source": source})
             quality = quality_at(market, symbol, op)
             prepared, _ = QULL.prepare(daily[symbol], op, market.clock) if symbol in daily else ([], "missing daily history")
             previous_day = prepared[-1]["date"].isoformat() if prepared else None
@@ -122,6 +124,10 @@ def replay(market, config, start, end):
                     if strategy == "EP" and not catalysts:
                         continue
                     exact_prefix = prefix[:event["index"] + 1]
+                    event_source = source_identity(exact_prefix)
+                    if event_source["status"] == "MIXED_PROVIDER_DATA" or event_source["status"].startswith("BASIS_"):
+                        reject(event_source["status"])
+                        break
                     # The existing causal zero-volume/changed-close check is
                     # also observable on this prefix. Never use later bars.
                     intraday_flags = causal_bar_flags({k: [r[k] for r in exact_prefix] for k in ("o", "h", "l", "c", "v")},
@@ -140,6 +146,7 @@ def replay(market, config, start, end):
                         a.update(triggered=True, trigger_time=iso(now), trigger_type=native["trigger"]["type"],
                                  setup_ready=True, native_risk=native["risk"])
                     selected = native
+                    source = event_source
                     break
                 if selected is None:
                     if audit["reason"] is None:
@@ -166,6 +173,7 @@ def replay(market, config, start, end):
                     "RS_PROXY": trends[symbol].get("RS_PROXY"), "liquidity": selected["dollar_volume_20d"],
                     "atr": selected["atr"], "adr": selected["adr"],
                     "ambiguity_flags": ["MODELLED_COSTS_NOT_OBSERVED_HISTORICAL_COSTS"], **quality}
+                plan.update({k: source[k] for k in ("provider", "feed", "adjustment") + BASIS_FIELDS if k in source})
                 plans.append(plan)
                 if confl and confl["triggered"]:
                     plans.append(dict(copy.deepcopy(plan), id=confl["id"], strategy="CONFLUENCE_TRIGGERED",

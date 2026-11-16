@@ -2,6 +2,7 @@
 # generated audit/test output stay local. No run-directory fixture exceptions.
 /runs/
 /repository-audit/
+/intraday-cache/
 
 # Python and test-tool caches/output.
 __pycache__/

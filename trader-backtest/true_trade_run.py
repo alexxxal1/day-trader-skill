@@ -38,12 +38,13 @@ def validate(config):
 
 def markdown(report, trades):
     lines = ["# Historische True-Trade-Rekonstruktion", "",
-        "Primär: PIT_SAFE, REALISTIC, conservative. INTRADAY_HISTORY_LIMITED. Keine Strategieoptimierung.", "",
+        "Primär: PIT_SAFE, REALISTIC, conservative. Keine Strategieoptimierung. Datenflags: " + ", ".join(report["flags"]), "",
         "Zeitraum: %s bis %s. Universum: %s (bestehender Acht-Aktien-Pilot, kein Gesamtmarkt)." %
         (*report["period"], ", ".join(report["universe"])),
         "Daten mit mindestens einem vollständigen regulären Intraday-Tag: %d Aktien. %d vollständige Aktien-Sessions." %
         (report["coverage"]["sufficient_stocks"], report["coverage"]["complete_stock_sessions"]), "",
-        "NOT_HISTORICALLY_PIT_CERTIFIED: heutige revidierbare Yahoo-Snapshots mit angenommener Bar-Close-Verfügbarkeit; kein historischer Liefernachweis.", "",
+        "NOT_HISTORICALLY_PIT_CERTIFIED: revidierbare Provider-Snapshots mit angenommener Bar-Close-Verfügbarkeit; kein historischer Liefernachweis.", "",
+        "Intraday-Quellen (Provider/Feed/Adjustment): " + str(report.get("intraday_sources", [])), "",
         "| Strategie | Kandidaten | SETUP_READY | TRIGGERED | True Trades | Sample |",
         "|---|---:|---:|---:|---:|---|"]
     for name in STRATEGIES:
@@ -116,7 +117,8 @@ def run(document, config, output):
     fields = ["id", "ticker", "strategy", "setup_date", "trigger_type", "trigger_time", "entry_time", "entry_price",
         "stop_initial", "stop_basis", "stop_known_at", "target_initial", "exit_time", "exit_price", "exit_reason", "side",
         "spread", "slippage", "fees", "costs", "gross_pnl", "net_pnl", "r_multiple", "holding_minutes",
-        "pit_safe_status", "data_quality_status", "catalyst_status", "ambiguity_flags", "cost_scenario", "intrabar_order"]
+        "pit_safe_status", "data_quality_status", "catalyst_status", "ambiguity_flags", "cost_scenario", "intrabar_order",
+        "provider", "feed", "adjustment", "storage_basis", "storage_basis_id", "basis_status"]
     with gzip.open(output / "true-trades.csv.gz", "wt", newline="") as stream:
         writer = csv.DictWriter(stream, fields, extrasaction="ignore")
         writer.writeheader()
@@ -136,9 +138,13 @@ def run(document, config, output):
     coverage = adapted["coverage"]
     from true_trade_portfolio import research
     risk = research(primary, market, config, days[0], days[-1], output / "portfolio")
+    identities = sorted({(r.get("provider") or "LEGACY_UNSPECIFIED", r.get("feed") or "UNSPECIFIED", r.get("adjustment") or "UNSPECIFIED")
+        for s in market.universe for f in ("1m", "5m") for r in market.bars(s, f)})
     report = {"period": [days[0], days[-1]], "universe": market.universe,
         "configuration_sha256": digest(config), "strategy_sources_unchanged": fingerprints() == before,
-        "flags": ["INTRADAY_HISTORY_LIMITED", "NOT_HISTORICALLY_PIT_CERTIFIED", "SURVIVORSHIP_BIAS_RISK"],
+        "flags": (["INTRADAY_HISTORY_LIMITED"] if any(p in ("YAHOO", "LEGACY_UNSPECIFIED") for p, _, _ in identities) else ["PROVIDER_HISTORY_UNVERIFIED"]) +
+            ["NOT_HISTORICALLY_PIT_CERTIFIED", "SURVIVORSHIP_BIAS_RISK"],
+        "intraday_sources": [dict(provider=p, feed=f, adjustment=a) for p, f, a in identities],
         "coverage": {"sufficient_stocks": len({r["ticker"] for r in coverage if r["complete_session"]}),
             "complete_stock_sessions": sum(r["complete_session"] for r in coverage),
             "stock_sessions_with_opening_prefix": sum(bool(r["contiguous_opening_bars"]) for r in coverage),

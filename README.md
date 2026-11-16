@@ -76,6 +76,7 @@ and reports seeded random controls, SPY/QQQ, chronological IS/OOS and data gaps.
 [Portfolio and empirical Monte Carlo](trader-backtest/PORTFOLIO.md) |
 [Rehydrated event-return portfolios](trader-backtest/EVENT-PORTFOLIO.md) |
 [Actual intraday True Trades](trader-backtest/TRUE-TRADES.md) |
+[Intraday providers and capability audit](trader-backtest/INTRADAY-PROVIDERS.md) |
 [Repository contents](trader-backtest/REPOSITORY-AUDIT.md)
 
 The separate True Trade workflow first audits permitted intraday sources, then
@@ -87,6 +88,14 @@ observations and zero confirmed True Trades; it makes no inference about
 1993-2026. All five strategy samples are VERY_LOW_SAMPLE. Strategy Monte Carlo
 requires at least 100 complete True Trades in this workflow. See the
 [coverage audit and first-run findings](trader-backtest/TRUE-TRADES-FIRST-RUN.md).
+
+Historical intraday acquisition now has a common Yahoo, Alpaca and Massive
+provider layer. Routing defaults to ALPACA (IEX), YAHOO, MASSIVE; missing
+credentials send no authenticated requests. A whole stock/session uses one
+provider, feed and adjustment basis. Resumable local caches, bounded retries,
+bar validation and an explicit capability audit precede any paired pilot.
+IEX and SIP remain distinct. The original Yahoo acquisition is retained;
+provider history and reconstructed-trade improvements require observed tests.
 
 The portfolio extension applies the unchanged native triggers and risk guards
 to deduplicated reset/cooldown events, with EUR cash accounting, historical FX,
