@@ -7,6 +7,7 @@ from decimal import Decimal
 from common import iso, module, stamp
 from engine import friction
 from portfolio_metrics import streaks
+from intraday_providers.provenance import BASIS_FIELDS, source_identity
 
 EXITS = module("trader-exit", "exit")
 RISK = module("trader-risk", "check")
@@ -124,6 +125,10 @@ def reconstruct(plan, rows, clock, config, costs, order="conservative"):
     if not following or following[0]["_start"] != at:
         return dict(plan, status="NEXT_INTRADAY_BAR_MISSING", true_trade=False)
     first = following[0]
+    source = source_identity([r for r in rows if r["_start"] < at] + [first], plan)
+    if source["status"] == "MIXED_PROVIDER_DATA" or source["status"].startswith("BASIS_"):
+        return dict(plan, status=source["status"], true_trade=False, data_flags=[source["status"]])
+    plan = dict(plan, **{k: source[k] for k in ("provider", "feed", "adjustment") + BASIS_FIELDS if k in source})
     if first["v"] <= 0:
         return dict(plan, status="INSUFFICIENT_EXECUTION_LIQUIDITY", true_trade=False)
     end = cutoff(clock, plan["session"], config)
@@ -150,6 +155,11 @@ def reconstruct(plan, rows, clock, config, costs, order="conservative"):
     marks = [[iso(at), first["o"]]]
     expected = at
     for bar in following:
+        current_source = source_identity([first, bar], plan)
+        if current_source["status"] == "MIXED_PROVIDER_DATA" or current_source["status"].startswith("BASIS_"):
+            trade.update(status=current_source["status"], true_trade=False,
+                         data_flags=[current_source["status"]], marks=marks)
+            return trade
         if bar["_start"] != expected:
             trade.update(status="INSUFFICIENT_EXIT_DATA", exit_reason="INSUFFICIENT_EXIT_DATA", marks=marks)
             return trade
