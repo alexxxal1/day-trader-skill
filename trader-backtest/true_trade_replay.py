@@ -110,9 +110,9 @@ def replay(market, config, start, end):
                 if not bars:
                     reject("INSUFFICIENT_INTRADAY_DATA")
                     continue
-                events = QULL.triggers(bars, "sell" if strategy == "PARABOLIC_SHORT" else "buy", cfg, strategy.startswith("PARABOLIC"))
-                if strategy == "BREAKOUT":
-                    events = [e for e in events if e["price"] > row["metrics"]["base_high"]]
+                events = QULL.triggers(bars, "sell" if strategy == "PARABOLIC_SHORT" else "buy", cfg,
+                                      strategy.startswith("PARABOLIC"),
+                                      base_high=row["metrics"]["base_high"] if strategy == "BREAKOUT" else None)
                 selected = None
                 ep_catalyst_seen = False
                 for event in events:

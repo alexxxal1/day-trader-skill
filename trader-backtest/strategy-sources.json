@@ -9,7 +9,19 @@
     "trader-risk/check.py": "f6f2f152b97b76b88ebe6cd2e92afc107993d2f57640281bc7cca1a796ed6b68",
     "trader-risk/exposure.py": "51cfcc98247dfea539dd8c2ab68b7b95efd004ce70c8473da84c2e08fc37ca9f",
     "trader-scanner/minervini.py": "73e09a8936a0c7b54d5938df6958c186fd10b8dd5a63cc9a65b728063307c53a",
-    "trader-scanner/qullamaggie.py": "ba78c93a458c71fdfef20ddef3a8a6722191826bfe7ea025a0aa37aad50f50d4",
+    "trader-scanner/qullamaggie.py": "2d8a535668199cb2260515abed964d70198bde2ed1e81c0645d85933588e9387",
     "trader-scanner/scan.py": "c01d7ded654fdd78483b866431fbe87c6aa7d99557bb0efe87438668b448cebe"
+  },
+  "sha256_scope": "Current declared native sources after the explicit behavior change below; origin_main is historical provenance, not the commit of these updated hashes.",
+  "behavior_change": {
+    "id": "BREAKOUT_JOINT_OR_BASE_CLOSE_20261124",
+    "baseline_commit": "26300d25bc759e45fe6c7f87a4e5f3d5c3afe560",
+    "previous_source_sha256": {
+      "trader-scanner/qullamaggie.py": "ba78c93a458c71fdfef20ddef3a8a6722191826bfe7ea025a0aa37aad50f50d4",
+      "trader-backtest/true_trade_replay.py": "c030a03b257b55696593c1839ee862236924477a120861126b0c438d5f06c810"
+    },
+    "rule": "Breakout selects the earliest completed post-range close strictly above both OR-high and applicable base-high per configured resolvable OR; no recross required.",
+    "shared_logic": "trader-scanner/qullamaggie.py:triggers(base_high=...) used by scanner and True-Trade replay",
+    "unchanged": "Strategy parameters, SETUP_READY, EP, Parabolic Short/Long, availability, sessions, gaps, fixed frame/provider selection. Existing archived pilots keep their original code and hashes."
   }
 }
