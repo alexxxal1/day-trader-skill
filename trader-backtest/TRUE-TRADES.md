@@ -119,8 +119,11 @@ bestätigten früheren Trigger, kann aber seinen Exit unrekonstruierbar machen.
 Korrekturen nach Bar-Ende ersetzen keine historische Execution-Bar.
 
 * Breakout: natives vorheriges `SETUP_READY`; native ORH-1m/5m/60m erst nach
-  Range-Abschluss, dann zusätzliche spätere Close-Bestätigung. Der bestätigte
-  Close muss gemäß vorhandener Regel auch über `base_high` liegen. Das native
+  Range-Abschluss, dann zusätzliche spätere Close-Bestätigung. Je konfigurierter,
+  auflösbarer OR zählt die früheste abgeschlossene Bar, deren Close strikt über
+  OR-High UND dem maßgeblichen `base_high` liegt. Eine frühere OR-Überschreitung
+  unter oder gleich `base_high` verbraucht diese OR nicht; ein Rückfall unter
+  OR-High ist vor einer späteren gemeinsamen Bestätigung nicht erforderlich. Das native
   Daily-Breakout bleibt Kontext (`current_entry=false`).
 * EP: aktueller Gap gemäß unveränderter Schwelle, natives Volumen/RVOL bis zum
   jeweiligen Trigger, verifizierter kategorisierter Catalyst mit Referenz.
@@ -136,6 +139,14 @@ Korrekturen nach Bar-Ende ersetzen keine historische Execution-Bar.
 * Confluence: vorheriges Minervini PASS + Breakout `SETUP_READY`, dann exakt
   derselbe bestätigte Qullamaggie-Trigger. Ein Plan enthält seine Breakout-
   Parent-ID. Minervini selbst erzeugt hier keinen Entry.
+
+Verhaltensänderung vom 24.11.2026 gegenüber
+`26300d25bc759e45fe6c7f87a4e5f3d5c3afe560`: Breakout prüfte zuvor nur den
+ersten OR-Kandidaten nachträglich gegen Base-High. Scanner und Replay prüfen
+nun beide Schwellen gemeinsam im nativen `triggers`-Helper vor der Auswahl.
+Die eingefrorenen Pilot-Ergebnisse bleiben beim bisherigen Code-Stand.
+SETUP_READY, Parameter, EP/Parabolic und alle Verfügbarkeits-, Session-,
+Lücken- und Frame-/Providerregeln bleiben unverändert.
 
 Zur getrennten Untersuchung von Short-Preisverläufen werden nur die vorhandenen
 Paper-Risk-Berechtigungen `allow_short/allow_margin/paper` gesetzt; keine

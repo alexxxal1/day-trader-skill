@@ -111,6 +111,20 @@ A completed daily close above the previous base high is reported under
 `daily_breakout` with the actual session-close availability time. It is daily
 context, not a reconstructed intraday entry. Current breakout/EP confirmation
 uses 1m/5m/60m ORH (and for breakouts also requires price above base high).
+
+**Behavior change, 2026-11-24, relative to `26300d25bc759e45fe6c7f87a4e5f3d5c3afe560`:**
+For Breakout, each configured, resolvable OR selects the earliest completed
+post-range confirmation bar whose close is strictly above both OR-high and
+the applicable daily base-high. An earlier OR-only close below or equal to
+base-high does not consume that OR; a later jointly qualifying close counts
+without first falling back below OR-high. Previously the first OR cross was
+selected before applying the base-high filter, so a later joint confirmation
+could be lost. Scanner and historical True-Trade replay now pass base-high
+into the same native `triggers` search. Daily/SETUP_READY rules, parameters,
+EP, Parabolic, availability, session, gap and frame/provider rules are unchanged.
+Frozen pilot IDs and results retain their original code version and are not
+recomputed by this change.
+
 Parabolic shorts support ORL, first red **completed 5m** candle after further
 extension, and an ordered crack -> bounce near VWAP -> red close below VWAP.
 VWAP is a cumulative typical-price/volume proxy. A subsequent close reclaiming

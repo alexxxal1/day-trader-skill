@@ -26,6 +26,14 @@
     "trader-backtest/reporting.py": "05c156ff8b2e657040c370d012692cfec389b9ca5a233ab8d4715a90deabe4df",
     "trader-backtest/run.py": "5af89e1540a75507b092c9499d6b3ce17ba5dc94ec8c8cd5d9c83baa13107fb9",
     "trader-backtest/splits.py": "59a35c31b2c7fcb0241149a450d299cceeabaa25cca3044e1c06c2366aa8e902",
-    "trader-backtest/strategy-sources.json": "f4f57944a2d00cee97abc8e0ec30cd0186d6bc3819c31d680b8817060f717e2a"
+    "trader-backtest/strategy-sources.json": "7b584625861fa389915f11241f5936228c907175523a6bcc790c8bfcfad4e9a5"
+  },
+  "sha256_scope": "Current invariance expectations after the declared native Breakout behavior change; origin_main retains the historical baseline.",
+  "authorized_source_change": {
+    "id": "BREAKOUT_JOINT_OR_BASE_CLOSE_20261124",
+    "baseline_commit": "26300d25bc759e45fe6c7f87a4e5f3d5c3afe560",
+    "updated_path": "trader-backtest/strategy-sources.json",
+    "previous_sha256": "f4f57944a2d00cee97abc8e0ec30cd0186d6bc3819c31d680b8817060f717e2a",
+    "reason": "The active native source pin records the authorized joint OR/Base-High close behavior. Only this dependent manifest hash is updated; all other code/config pins remain unchanged."
   }
 }

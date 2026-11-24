@@ -272,8 +272,15 @@ def five_minute(bars):
     return out
 
 
-def triggers(bars, side, cfg, parabolic=False):
-    """Conservative close confirmations; return all observed events in time order."""
+def triggers(bars, side, cfg, parabolic=False, *, base_high=None):
+    """Return the first eligible close per OR, followed by other native events.
+
+    Only Breakout supplies base_high: its close must exceed both levels on
+    the same completed bar before that OR's search ends. Earlier OR-only
+    crosses do not consume the opportunity or require a fresh recross.
+    EP and Parabolic omit this condition and retain their existing rules.
+    Callers still enforce completed, available, contiguous session prefixes.
+    """
     events = []
     if not bars:
         return events
@@ -288,7 +295,7 @@ def triggers(bars, side, cfg, parabolic=False):
         level = (min(b["low"] for b in bars[:count]) if short else max(b["high"] for b in bars[:count]))
         for i, bar in enumerate(bars[count:], count):
             crossed = bar["close"] < level if short else bar["close"] > level
-            if crossed:
+            if crossed and (base_high is None or bar["close"] > base_high):
                 events.append({"type": ("ORL_" if short else "ORH_") + str(minutes) + "m",
                                "at": iso(bar["end"]), "level": level, "price": bar["close"], "index": i})
                 break
@@ -629,7 +636,8 @@ def scan(data, universe, now, clock, mode, intraday=None, evidence=None, overrid
             row["dollar_volume_20d"] = liquidity
             if liquidity < cfg["min_dollar_volume"]:
                 row["reasons"].append("low/unknown liquidity: research only")
-            events = triggers(intra, "sell" if direction == "short" else "buy", cfg, mode == MODES[2]) if active else []
+            events = triggers(intra, "sell" if direction == "short" else "buy", cfg, mode == MODES[2],
+                              base_high=metrics.get("base_high", float("inf")) if mode == MODES[0] else None) if active else []
             if mode == MODES[2] and cap is not None:
                 cap_records = [r for r in evidence.get("metadata", []) if r.get("symbol") == sym
                                and r.get("reference") and available(r, now) and positive(r.get("market_cap"))]
@@ -637,8 +645,6 @@ def scan(data, universe, now, clock, mode, intraday=None, evidence=None, overrid
                 # A later cap snapshot cannot classify an earlier trigger.
                 events = [e for e in events if timestamp(e["at"]) >= cap_available]
             if mode == MODES[0]:
-                # A base break needs its own level as well as an OR break.
-                events = [e for e in events if e["price"] > metrics.get("base_high", float("inf"))]
                 if metrics.get("daily_breakout"):
                     row["daily_breakout"] = {"confirmed": True, "available_at": iso(clock.eastern_to_utc(dt.datetime.combine(bars[-1]["date"], clock.session(bars[-1]["date"])[1]))), "current_entry": False}
             apply_trigger(row, events, intra, catalysts, cfg)
