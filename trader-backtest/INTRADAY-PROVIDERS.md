@@ -147,6 +147,60 @@ früheren Beobachtung oder Auffüllen. `validation_cutoff`, `quarantined_bars`
 und der weiterhin ungültige Qualitätsstatus dokumentieren den Fehler.
 Antwortreihenfolge ersetzt keinen historischen Delivery-/Vintage-Nachweis.
 
+### Separate Diagnose fehlender Minuten
+
+`intraday_providers.missing_minutes.classify_minute` klassifiziert genau ein
+halb offenes Minutenintervall. Sie wird weder vom Collector noch vom Router,
+Scanner oder Replay automatisch aufgerufen. Die Funktion akzeptiert nur
+gespeicherte Bytes mit `RawResponse`-Metadaten und optional `RuleEvidence`;
+sie führt keinerlei Datei- oder Netzwerkzugriffe aus.
+
+* `BAR_PRESENT`: Ein zugehöriger roher 1m-Bar-Datensatz wurde beobachtet.
+  Dies ist kein Qualitäts-, Kursbasis- oder Zulassungsnachweis.
+* `NO_BAR_CONSISTENT_WITH_TRADE_CONDITIONS`: Die fehlende Bar ist innerhalb
+  der belegten API-Abfrage durch die unterstützte dokumentierte Regel erklärt.
+* `GAP_UNEXPLAINED`: Keine ausreichend belegte Erklärung. Dies bedeutet
+  weder Downloadfehler noch Handelsstillstand oder einen handelsfreien Zeitraum.
+
+Die erste Regelversion unterstützt ausschließlich Alpaca SIP US-Aktien auf
+Tape A/B/C und die geprüften Codes SPACE (U+0020), `@`, `F`, `I` mit ihren
+jeweils passenden Tapes. Alle zurückgegebenen Trades müssen die passende
+`I`-Condition tragen, welche OHLC-Preisupdates ausschließt; bei mehreren
+Conditions gilt die strengste Regel. Volume allein erzeugt keine Bar.
+Regelquelle ist die offizielle [Market Data FAQ](https://docs.alpaca.markets/us/docs/market-data-faq),
+Abschnitt „How are bars aggregated?“. Ein gespeicherter Textbeleg muss die
+passende Aktien-Tabelle, Kombinations- und Ausgaberegel enthalten und an seinen
+Hash gebunden sein. Ein frei gesetztes VERIFIED-Label genügt nicht.
+
+Für eine Erklärung prüft die Funktion Provider/Feed/Symbol/Endpoint, die
+tatsächlichen Request-Parameter, HTTP 200, Rohdaten-Hashes, JSON-Schema,
+Zeitstempel und Reihenfolge, vollständigen Body/Content-Length sowie ein
+explizit leeres `next_page_token`. Die Captures müssen nach Ende der gesamten
+Minute vorliegen; das ist keine historische Verfügbarkeitszertifizierung.
+Der Trade-Request muss genau die Minute
+umfassen: inklusives API-Ende = exklusive Intervallgrenze minus eine Nanosekunde.
+Ein größerer vollständiger 1m-Bars-Request darf die Minute einschließen.
+Einzelne Folgeseiten oder unvollständige Seitenketten, unbekannte Conditions,
+unpassende Tapes, mindestens ein preisaktualisierender Trade, unzureichende
+Capture-Metadaten und leere Trades-Antworten bleiben `GAP_UNEXPLAINED`.
+Andere Provider/Feeds oder weitere Conditions benötigen erst eigene geprüfte
+Regeladapter; sie erhalten keine automatische Erklärung.
+
+Das Ergebnis enthält Provider, Feed, UTC-Intervall, berechnete Rohdaten-Hashes,
+Regelquelle/Text-Hash, Capture-Zeiten, Prüfergebnisse, Gründe und Grenzen.
+Hashes binden Bytes, authentifizieren aber nicht allein deren Herkunft oder
+Vollständigkeit. Vollständigkeit gilt nur innerhalb des dokumentierten
+API-Rückgabeumfangs, nicht für sämtliche Markt-Prints. Heutige Capture-Zeiten
+belegen keine historische PIT-Verfügbarkeit.
+
+**Auch eine erklärte fehlende Bar bleibt für den bisherigen Prefix blockierend.**
+`reconstruction_blocking=true`, `may_bridge_gap=false` und `bars_created=0`
+machen dies ausdrücklich. Die Funktion liefert keine Ersatzbars und verändert
+keine Eingaben. Prefix-, Frame-, Provider-, Qualitäts- und Triggerregeln bleiben
+unverändert; ein `BAR_PRESENT`-Label umgeht deren bestehende Zulassung nicht.
+Reale Integrationsrohdatensätze liegen ausschließlich außerhalb des Repositorys;
+die Regressionstests verwenden kleine synthetische Captures.
+
 Ein späterer Pagination-Fehler kann `AVAILABLE_PREFIX` mit getrenntem
 `download_status` und `download_complete=false` liefern, wenn die bereits
 geladenen Beobachtungen validiert sind und Download-Voraussetzungen vorliegen.
